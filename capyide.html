@@ -1,0 +1,1070 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>CapyIDE - Editor de Código com IA</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Supabase JS -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- Pré-configuração do AMD loader do Monaco ANTES de carregar o loader -->
+  <script>
+    window.MONACO_VERSION = '0.44.0';
+    window.MonacoCDN = `https://cdn.jsdelivr.net/npm/monaco-editor@${window.MONACO_VERSION}/min`;
+    window.require = { paths: { vs: window.MonacoCDN + '/vs' } };
+  </script>
+  <!-- CSS principal do Monaco (evita falha do plugin vs/css) -->
+  <link id="monaco-css" rel="stylesheet" data-name="vs/editor/editor.main" href="https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs/editor/editor.main.css" />
+  <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs/loader.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    .slide-out-left { animation: slideOutLeft 0.4s ease-in-out forwards; }
+    .slide-in-right { animation: slideInRight 0.4s ease-in-out forwards; }
+    .slide-in-left { animation: slideInLeft 0.4s ease-in-out forwards; }
+    @keyframes slideOutLeft { from { transform: translateX(0); opacity: 1; } to { transform: translateX(-100%); opacity: 0; } }
+    @keyframes slideInRight { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    @keyframes slideInLeft { from { transform: translateX(-100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    #previewFrame { width: 100%; height: 100%; border: none; background: white; }
+    #generateBtn { transition: all 0.25s ease; transform: scale(1); }
+    #generateBtn:hover { transform: scale(1.03); box-shadow: 0 8px 25px rgba(163, 230, 53, 0.25); }
+    #generateBtn:active { transform: scale(0.98); }
+    #fallbackEditor { display:none; width:100%; height:100%; background:#0b0b0b; color:#e5e7eb; border:none; padding:12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:14px; }
+  </style>
+</head>
+<body class="bg-zinc-900 text-white h-full overflow-hidden">
+  <!-- HOME (mobile-first) -->
+  <div id="homeScreen" class="min-h-full flex flex-col gap-6 p-4 sm:p-6">
+    <header class="pt-6">
+      <h1 class="text-4xl sm:text-5xl font-bold">
+        <span class="text-gray-300">Capy</span><span class="text-lime-400">IDE</span>
+      </h1>
+      <p class="text-base sm:text-lg text-gray-400 mt-1">O que vamos criar hoje?</p>
+    </header>
+
+    <main class="flex-1">
+      <div class="bg-zinc-800 border border-zinc-700 rounded-xl p-4 sm:p-5">
+        <textarea id="promptInput" placeholder="Descreva o que você quer criar..."
+          class="w-full bg-transparent border border-zinc-700 rounded-lg resize-y min-h-[120px] max-h-[50vh] outline-none text-white placeholder-gray-400 p-3"></textarea>
+        <div class="flex flex-wrap gap-2 mt-4">
+          <button class="px-3 py-1 bg-zinc-700 rounded text-sm hover:bg-zinc-600">Website</button>
+          <button class="px-3 py-1 bg-zinc-700 rounded text-sm hover:bg-zinc-600">App React</button>
+          <button class="px-3 py-1 bg-zinc-700 rounded text-sm hover:bg-zinc-600">Python</button>
+        </div>
+        <div class="mt-4 flex items-center justify-between">
+          <div class="flex items-center gap-2 text-xs text-gray-400">
+            <span>API:</span>
+            <span id="apiStatus" class="inline-block w-2.5 h-2.5 bg-red-500 rounded-full"></span>
+            <button id="openApiModal" class="ml-2 px-2 py-1 bg-zinc-700 rounded hover:bg-zinc-600">Configurar API</button>
+          </div>
+          <button id="generateBtn" class="bg-lime-400 text-black px-5 py-2 rounded-lg font-semibold hover:bg-lime-300 active:scale-[0.98]">Gerar Código</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- EDITOR (mobile-first) -->
+  <div id="editorScreen" class="hidden h-full w-full">
+    <div class="flex flex-col h-full">
+      <!-- Header compacto -->
+      <header class="bg-black border-b border-zinc-800 px-3 sm:px-4 py-3 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <button id="backBtn" class="text-lime-400 hover:text-lime-300 text-sm">← Voltar</button>
+          <h2 class="text-lg sm:text-xl font-bold">Capy<span class="text-lime-400">IDE</span></h2>
+        </div>
+        <div class="flex items-center gap-3">
+          <button id="toggleChatMobile" class="sm:hidden inline-flex items-center gap-2 text-sm bg-zinc-800 border border-zinc-700 px-3 py-1.5 rounded">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v2H4V6zm0 5h16v2H4v-2zm0 5h10v2H4v-2z"/></svg>
+            Chat
+          </button>
+          <div class="hidden sm:flex items-center gap-2 text-xs">
+            <span class="text-gray-400">Monaco:</span>
+            <span id="monacoStatus" class="inline-block w-2.5 h-2.5 bg-yellow-500 rounded-full" title="Aguardando"></span>
+          </div>
+          <button id="openApiModalEditor" class="hidden sm:inline-flex items-center gap-2 text-sm bg-zinc-800 border border-zinc-700 px-3 py-1.5 rounded">
+            Configurar API
+          </button>
+        </div>
+      </header>
+
+      <!-- Área principal -->
+      <div class="relative flex-1 min-h-0 sm:grid sm:grid-cols-[16rem_20rem_1fr]">
+        <!-- SIDEBAR NOVA: Histórico -->
+        <nav id="historySidebar" class="hidden sm:flex flex-col bg-zinc-900 border-r border-zinc-800 h-full min-h-0">
+          <div class="p-3 border-b border-zinc-700 flex items-center justify-between">
+            <h3 class="font-semibold text-sm">Histórico</h3>
+            <button id="refreshHistory" class="text-xs px-2 py-1 bg-zinc-800 border border-zinc-700 rounded hover:bg-zinc-700">Atualizar</button>
+          </div>
+          <div id="historyList" class="flex-1 overflow-y-auto p-2 space-y-1"></div>
+          <div class="p-2 border-t border-zinc-700 text-xs text-gray-400">
+            <span id="historyStatus">Conectando…</span>
+          </div>
+        </nav>
+
+        <!-- Chat drawer (mobile) + sidebar (desktop) -->
+        <aside id="chatPanel" class="fixed inset-y-0 left-0 w-full max-w-sm bg-zinc-900 border-r border-zinc-800 z-40 transform -translate-x-full transition-transform duration-200 ease-out
+sm:static sm:transform-none sm:translate-x-0 sm:w-80 sm:max-w-none sm:h-full sm:min-h-0 sm:overflow-hidden">
+          <div class="h-full min-h-0 flex flex-col">
+            <div class="p-4 border-b border-zinc-700 flex items-center justify-between">
+              <h3 class="font-semibold">Chat com IA</h3>
+              <button id="closeChatMobile" class="sm:hidden text-sm text-gray-300">Fechar</button>
+            </div>
+            <div id="chatMessages" class="flex-1 overflow-y-auto p-4 space-y-3"></div>
+            <div class="p-3 border-t border-zinc-700">
+              <div class="flex gap-2">
+                <input id="chatInput" type="text" placeholder="Pergunte algo..." class="flex-1 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm" />
+                <button id="sendChatBtn" class="bg-lime-400 text-black px-4 py-2 rounded">→</button>
+              </div>
+            </div>
+          </div>
+        </aside>
+        <div id="chatOverlay" class="hidden fixed inset-0 bg-black/50 z-30 sm:hidden"></div>
+
+        <!-- Editor + Preview -->
+        <section class="h-full min-h-0">
+          <div class="bg-zinc-800 border-b border-zinc-700 px-3 sm:px-4 py-2 flex items-center gap-2">
+            <div class="flex items-center bg-zinc-900 rounded-md overflow-hidden">
+              <button id="codeTab" class="px-3 py-1.5 bg-zinc-700 text-sm">Código</button>
+              <button id="previewTab" class="px-3 py-1.5 bg-zinc-600 text-sm">Preview</button>
+            </div>
+            <div class="ml-auto flex items-center gap-2">
+              <button id="copyBtn" class="px-3 py-1 bg-zinc-700 rounded text-sm hover:bg-zinc-600">Copiar</button>
+              <button id="downloadBtn" class="px-3 py-1 bg-zinc-700 rounded text-sm hover:bg-zinc-600">Download</button>
+            </div>
+          </div>
+
+          <div id="editorContent" class="relative h-[calc(100%-48px)] sm:h-[calc(100%-48px)]">
+            <div id="monacoEditor" class="absolute inset-0"></div>
+            <textarea id="fallbackEditor" class="absolute inset-0"></textarea>
+            <div id="previewContainer" class="absolute inset-0 hidden">
+              <iframe id="previewFrame" class="w-full h-full border-0" sandbox="allow-scripts allow-same-origin"></iframe>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <nav class="sm:hidden fixed bottom-0 inset-x-0 bg-black/80 backdrop-blur border-t border-zinc-800 flex items-center justify-between px-3 py-2">
+        <button id="mobileCode" class="text-sm px-3 py-1.5 bg-zinc-800 rounded">Código</button>
+        <button id="mobilePreview" class="text-sm px-3 py-1.5 bg-zinc-800 rounded">Preview</button>
+        <button id="mobileChat" class="text-sm px-3 py-1.5 bg-zinc-800 rounded">Chat</button>
+      </nav>
+    </div>
+  </div>
+
+  <!-- Loading Overlay -->
+  <div id="loadingOverlay" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="text-center">
+      <div class="animate-spin w-8 h-8 border-2 border-lime-400 border-t-transparent rounded-full mx-auto mb-4"></div>
+      <p>Gerando código...</p>
+    </div>
+  </div>
+
+  <!-- MODAL: Configurar API -->
+  <div id="apiModal" class="hidden fixed inset-0 z-[60]">
+    <div id="apiModalBackdrop" class="absolute inset-0 bg-black/60"></div>
+    <div class="absolute inset-x-4 top-16 sm:left-1/2 sm:-translate-x-1/2 sm:w-[460px] bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl overflow-hidden">
+      <div class="px-4 py-3 border-b border-zinc-700 flex items-center justify-between">
+        <h3 class="font-semibold">Configurar API (Google AI Studio)</h3>
+        <button id="apiModalClose" class="text-gray-300 hover:text-white">✕</button>
+      </div>
+      <div class="p-4 space-y-4 text-sm">
+        <p class="text-gray-300">Cole sua <strong>API Key</strong> do Google AI Studio (Gemini):</p>
+        <ol class="list-decimal list-inside text-gray-400 space-y-1">
+          <li>Acesse <span class="underline">ai.google.dev</span> → “Get API Key”.</li>
+          <li>Crie uma chave e copie o token.</li>
+          <li>Cole abaixo e clique em <em>Salvar</em>.</li>
+        </ol>
+        <input id="apiKeyInput" type="password" placeholder="Cole sua API Key aqui" class="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2" />
+        <div class="flex justify-end gap-2">
+          <button id="apiModalCancel" class="px-3 py-2 bg-zinc-800 border border-zinc-700 rounded">Cancelar</button>
+          <button id="apiModalSave" class="px-3 py-2 bg-lime-500 text-black rounded font-semibold">Salvar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // =========================
+    // Supabase (sem auth por enquanto)
+    // =========================
+    const SUPABASE_URL = 'https://ranhhacbgyfpzrjdynnd.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJhbmhoYWNiZ3lmcHpyamR5bm5kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM5MDU4OTEsImV4cCI6MjA1OTQ4MTg5MX0.Ey-X4Tz8krKHSICnYdHdBaI3q5WcRgUVwA8jOhfMr7Y';
+    let supabase = window.supabase?.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    let storageMode = 'supabase'; // ou 'local'
+    let deviceId = localStorage.getItem('capy_device_id') || (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()));
+    localStorage.setItem('capy_device_id', deviceId);
+
+    // Estado de thread atual
+    let currentThreadId = localStorage.getItem('capy_last_thread_id') || null;
+
+    async function supaHealthy() {
+      try {
+        const { error } = await supabase.from('threads').select('id').limit(1);
+        if (error) throw error;
+        return true;
+      } catch (e) {
+        console.warn('[Supabase] indisponível ou RLS bloqueou:', e.message);
+        storageMode = 'local';
+        document.getElementById('historyStatus').textContent = 'Usando armazenamento local';
+        return false;
+      }
+    }
+
+    // Helpers de persistência (Supabase ou LocalStorage)
+    async function persistThreadTitle(threadId, title) {
+      if (storageMode === 'local') {
+        const threads = JSON.parse(localStorage.getItem('capy_threads')||'[]');
+        const i = threads.findIndex(t=>t.id===threadId);
+        if (i>=0) { threads[i].title = title; threads[i].updated_at = new Date().toISOString(); }
+        else { threads.unshift({id:threadId,title,updated_at:new Date().toISOString(),last_code_preview:''}); }
+        localStorage.setItem('capy_threads', JSON.stringify(threads));
+        return;
+      }
+      await supabase.from('threads').update({ title }).eq('id', threadId);
+    }
+
+    async function createThread(initialTitle) {
+      if (storageMode === 'local') {
+        const id = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
+        const threads = JSON.parse(localStorage.getItem('capy_threads')||'[]');
+        threads.unshift({ id, title: initialTitle || '[sem título]', updated_at: new Date().toISOString(), last_code_preview:'' });
+        localStorage.setItem('capy_threads', JSON.stringify(threads));
+        return id;
+      }
+      try {
+        const { data, error } = await supabase.rpc('fn_create_thread', { p_title: initialTitle || null });
+        if (!error && data) return data;
+      } catch (_) {}
+      try {
+        const { data, error } = await supabase
+          .from('threads')
+          .insert({ title: initialTitle || null })
+          .select('id')
+          .single();
+        if (error) throw error;
+        return data.id;
+      } catch (e) {
+        console.warn('[Supabase] createThread falhou, indo para local:', e?.message);
+        storageMode = 'local';
+        return await createThread(initialTitle);
+      }
+    }
+
+    async function addMessage(threadId, role, content) {
+      if (storageMode === 'local') {
+        const msgs = JSON.parse(localStorage.getItem(`capy_msgs_${threadId}`)||'[]');
+        msgs.push({ id: crypto.randomUUID?crypto.randomUUID():String(Date.now()), role, content, created_at:new Date().toISOString() });
+        localStorage.setItem(`capy_msgs_${threadId}`, JSON.stringify(msgs));
+        const threads = JSON.parse(localStorage.getItem('capy_threads')||'[]');
+        const i = threads.findIndex(t=>t.id===threadId);
+        if(i>=0){ threads[i].updated_at = new Date().toISOString(); localStorage.setItem('capy_threads', JSON.stringify(threads)); }
+        return;
+      }
+      try {
+        const { error } = await supabase.rpc('fn_add_message', { p_thread_id: threadId, p_role: role, p_content: content, p_token_count: null });
+        if (error) throw error;
+      } catch {
+        await supabase.from('messages').insert({ thread_id: threadId, role, content, user_id: deviceId });
+      }
+    }
+
+    async function addArtifact(threadId, code) {
+      if (!threadId) {
+        threadId = await createThread('[sem título]');
+        currentThreadId = threadId;
+      }
+      if (storageMode === 'local') {
+        localStorage.setItem(`capy_artifact_${threadId}`, code);
+        const threads = JSON.parse(localStorage.getItem('capy_threads')||'[]');
+        const i = threads.findIndex(t=>t.id===threadId);
+        if(i>=0){ threads[i].last_code_preview = (code||'').slice(0,200); threads[i].updated_at = new Date().toISOString(); localStorage.setItem('capy_threads', JSON.stringify(threads)); }
+        return;
+      }
+      try {
+        const { data: trow, error: terr } = await supabase.from('threads').select('id').eq('id', threadId).maybeSingle();
+        if (terr || !trow) {
+          console.warn('[Supabase] thread não existe, recriando…');
+          threadId = await createThread('[recuperado]');
+          currentThreadId = threadId;
+        }
+
+        try {
+          const { error } = await supabase.rpc('fn_add_artifact', {
+            p_thread_id: threadId,
+            p_language: 'html',
+            p_filename: 'index.html',
+            p_mime: 'text/html',
+            p_code: code,
+            p_metadata: { deviceId }
+          });
+          if (!error) return;
+        } catch (_) {}
+
+        const { error: insErr, status } = await supabase.from('artifacts').insert({
+          thread_id: threadId, language:'html', filename:'index.html', mime_type:'text/html', code, metadata:{deviceId}
+        });
+        if (insErr) throw Object.assign(new Error(insErr.message||'insert artifacts'), { status });
+      } catch (e) {
+        console.warn('[Supabase] addArtifact falhou:', e?.message, e?.status);
+        storageMode = 'local';
+        await addArtifact(threadId, code);
+      }
+    }
+
+    async function fetchRecentThreads(limit=30) {
+      if (storageMode === 'local') {
+        const threads = JSON.parse(localStorage.getItem('capy_threads')||'[]');
+        return threads.sort((a,b)=>new Date(b.updated_at)-new Date(a.updated_at)).slice(0,limit);
+      }
+      try {
+        const { data, error } = await supabase.rpc('fn_get_recent_threads', { limit_rows: limit });
+        if (error) throw error;
+        return data;
+      } catch {
+        const { data, error } = await supabase.from('threads')
+          .select('id,title,updated_at').order('updated_at',{ascending:false}).limit(limit);
+        if (error) throw error;
+        for (const t of data) {
+          const { data: art } = await supabase
+            .from('artifacts').select('code').eq('thread_id', t.id).order('created_at',{ascending:false}).limit(1).maybeSingle();
+          t.last_code_preview = (art?.code||'').slice(0,200);
+        }
+        return data;
+      }
+    }
+
+    async function fetchThreadCode(threadId) {
+      if (storageMode === 'local') {
+        return localStorage.getItem(`capy_artifact_${threadId}`) || '';
+      }
+      const { data, error } = await supabase
+        .from('artifacts').select('code').eq('thread_id', threadId).order('created_at',{ascending:false}).limit(1).maybeSingle();
+      if (error) { console.warn(error.message); return ''; }
+      return data?.code || '';
+    }
+
+    async function markThreadOpened(threadId) {
+      localStorage.setItem('capy_last_thread_id', threadId);
+      if (storageMode === 'local') return;
+      try { await supabase.rpc('fn_mark_thread_opened', { p_thread_id: threadId }); } catch {}
+    }
+
+    async function getLastOpenedThread() {
+      if (storageMode === 'local') return localStorage.getItem('capy_last_thread_id');
+      try {
+        const { data, error } = await supabase.rpc('fn_get_last_opened_thread');
+        if (error) throw error;
+        return data?.id || null;
+      } catch {
+        const { data } = await supabase.from('threads').select('id').order('updated_at', {ascending:false}).limit(1).maybeSingle();
+        return data?.id || null;
+      }
+    }
+
+    // Render da sidebar
+    function renderHistorySidebar(list) {
+      const box = document.getElementById('historyList');
+      box.innerHTML = '';
+      if (!list || list.length===0) {
+        box.innerHTML = '<div class="text-xs text-gray-400 p-2">Nada aqui ainda.</div>';
+        return;
+      }
+      for (const t of list) {
+        const item = document.createElement('button');
+        item.className = 'w-full text-left px-2 py-2 rounded border border-transparent hover:border-zinc-700 hover:bg-zinc-800';
+        const preview = (t.last_code_preview||'').replace(/\s+/g,' ').slice(0,120);
+        item.innerHTML = `
+          <div class="text-sm font-medium truncate">${sanitizeText(t.title || '[sem título]')}</div>
+          <div class="text-[11px] text-gray-400 truncate">${sanitizeText(preview)}</div>
+        `;
+        item.addEventListener('click', async ()=>{
+          currentThreadId = t.id;
+          await markThreadOpened(currentThreadId);
+          localStorage.setItem('capy_last_thread_id', currentThreadId);
+          const code = await fetchThreadCode(currentThreadId);
+          if (code) { setEditorValue(code); currentCode = code; lastGen = { prompt: '[histórico]', code }; }
+        });
+        box.appendChild(item);
+      }
+    }
+
+    async function refreshSidebar() {
+      document.getElementById('historyStatus').textContent = storageMode==='supabase' ? 'Conectado' : 'Local';
+      const list = await fetchRecentThreads(30);
+      renderHistorySidebar(list);
+    }
+
+    // =========================
+    // Estado
+    // =========================
+    let editor; // Monaco
+    let usingFallback = false;
+    let apiKey = localStorage.getItem('gemini_api_key');
+    let currentCode = '';
+    let previewTimer;
+    let pendingCodeQueue = [];
+
+    let lastGen = { prompt: '', code: '' };
+
+    // =========================
+    // Utils
+    // =========================
+    function sanitizeText(text) { const div = document.createElement('div'); div.textContent = text ?? ''; return div.innerHTML; }
+    function toast(msg) { const el = document.createElement('div'); el.className = 'fixed bottom-16 right-4 bg-zinc-800 text-white text-sm px-4 py-2 rounded shadow-lg border border-zinc-700 z-[70]'; el.textContent = msg; document.body.appendChild(el); setTimeout(() => el.remove(), 2200);} 
+    function schedulePreview(){ if (previewTimer) cancelAnimationFrame(previewTimer); previewTimer = requestAnimationFrame(updatePreview);} 
+    function isFullHtml(doc){ return /<!doctype/i.test(doc) || /<\s*html[\s>]/i.test(doc);} 
+
+    function isGenerateIntent(text){
+      const t = (text||'').toLowerCase();
+      const keywords = ['gera', 'gerar', 'cria', 'criar', 'constroi', 'constrói', 'build', 'generate', 'faça um', 'faça uma', 'html', '<html', '<!doctype', '```html'];
+      return keywords.some(k => t.includes(k));
+    }
+    function isEditIntent(text){
+      const t = (text||'').toLowerCase();
+      const keys = ['altere','mude','modifique','ajuste','adicione','remova','troque','refatore','melhore','continue','implemente','coloque','tirar','inserir'];
+      return keys.some(k => t.includes(k));
+    }
+
+    const el = (id)=>document.getElementById(id);
+    const elements = {
+      homeScreen: el('homeScreen'), editorScreen: el('editorScreen'),
+      promptInput: el('promptInput'), generateBtn: el('generateBtn'), backBtn: el('backBtn'),
+      chatPanel: el('chatPanel'), chatOverlay: el('chatOverlay'), toggleChatMobile: el('toggleChatMobile'), closeChatMobile: el('closeChatMobile'),
+      chatMessages: el('chatMessages'), chatInput: el('chatInput'), sendChatBtn: el('sendChatBtn'),
+      codeTab: el('codeTab'), previewTab: el('previewTab'),
+      mobileCode: el('mobileCode'), mobilePreview: el('mobilePreview'), mobileChat: el('mobileChat'),
+      monacoEditor: el('monacoEditor'), fallbackEditor: el('fallbackEditor'),
+      previewContainer: el('previewContainer'), previewFrame: el('previewFrame'),
+      copyBtn: el('copyBtn'), downloadBtn: el('downloadBtn'),
+      loadingOverlay: el('loadingOverlay'), apiStatus: el('apiStatus'), monacoStatus: el('monacoStatus'),
+      openApiModal: el('openApiModal'), openApiModalEditor: el('openApiModalEditor'),
+      apiModal: el('apiModal'), apiModalBackdrop: el('apiModalBackdrop'),
+      apiModalClose: el('apiModalClose'), apiModalCancel: el('apiModalCancel'),
+      apiModalSave: el('apiModalSave'), apiKeyInput: el('apiKeyInput'),
+      historyList: el('historyList'), historyStatus: el('historyStatus'), refreshHistory: el('refreshHistory')
+    };
+
+    // =========================
+    // API Key (setup + modal)
+    // =========================
+    function setupApiKey(){
+      if(!apiKey){ openApiDialog(); }
+      elements.apiStatus.className = apiKey ? 'inline-block w-2.5 h-2.5 bg-green-500 rounded-full' : 'inline-block w-2.5 h-2.5 bg-red-500 rounded-full';
+    }
+    function openApiDialog(){
+      elements.apiKeyInput.value = apiKey || '';
+      elements.apiModal.classList.remove('hidden');
+      setTimeout(()=>elements.apiKeyInput.focus(), 50);
+    }
+    function closeApiDialog(){ elements.apiModal.classList.add('hidden'); }
+    elements.openApiModal?.addEventListener('click', openApiDialog);
+    elements.openApiModalEditor?.addEventListener('click', openApiDialog);
+    elements.apiModalBackdrop?.addEventListener('click', closeApiDialog);
+    elements.apiModalClose?.addEventListener('click', closeApiDialog);
+    elements.apiModalCancel?.addEventListener('click', closeApiDialog);
+    elements.apiModalSave?.addEventListener('click', ()=>{
+      const k = elements.apiKeyInput.value.trim();
+      if(!k){ toast('Informe uma chave válida'); return; }
+      localStorage.setItem('gemini_api_key', k);
+      apiKey = k;
+      elements.apiStatus.className = 'inline-block w-2.5 h-2.5 bg-green-500 rounded-full';
+      closeApiDialog();
+      toast('API Key salva');
+    });
+
+    // =========================
+    // Monaco & Fallback
+    // =========================
+    function setMonacoWorkers(baseUrl){
+      window.MonacoEnvironment = {
+        getWorkerUrl: function(moduleId,label){
+          const code = `self.MonacoEnvironment={baseUrl:'${baseUrl}/'};importScripts('${baseUrl}/vs/base/worker/workerMain.js');`;
+          return URL.createObjectURL(new Blob([code], {type:'text/javascript'}));
+        }
+      };
+    }
+    function tryLoadMonaco(cdnBase, onSuccess, onFailure){
+      try {
+        require.config({ paths: { vs: cdnBase + '/vs' } });
+        const css = document.getElementById('monaco-css');
+        if(css) css.href = cdnBase + '/vs/editor/editor.main.css';
+        setMonacoWorkers(cdnBase);
+        require(['vs/editor/editor.main'], function(){
+          if (elements.monacoStatus) elements.monacoStatus.className='inline-block w-2.5 h-2.5 bg-green-500 rounded-full';
+          onSuccess();
+        }, function(err){
+          console.error('[Monaco] Falha', cdnBase, err);
+          onFailure && onFailure(err);
+        });
+      } catch(e){
+        console.error('[Monaco] Exceção', e);
+        onFailure && onFailure(e);
+      }
+    }
+    function enableFallbackEditor(){
+      usingFallback = true;
+      if (elements.monacoStatus) elements.monacoStatus.className='inline-block w-2.5 h-2.5 bg-red-500 rounded-full';
+      elements.fallbackEditor.style.display='block';
+      elements.fallbackEditor.value=currentCode||'';
+      elements.fallbackEditor.addEventListener('input', ()=>{
+        currentCode = elements.fallbackEditor.value;
+        schedulePreview();
+      });
+      if (pendingCodeQueue.length){
+        elements.fallbackEditor.value = pendingCodeQueue[pendingCodeQueue.length-1];
+        currentCode = elements.fallbackEditor.value;
+        pendingCodeQueue = [];
+      }
+      toast('Ativei o editor básico (fallback).');
+    }
+    function initMonacoOrFallback(){
+      tryLoadMonaco(`https://cdn.jsdelivr.net/npm/monaco-editor@${window.MONACO_VERSION}/min`, createMonacoInstance, function(){
+        tryLoadMonaco(`https://unpkg.com/monaco-editor@${window.MONACO_VERSION}/min`, createMonacoInstance, function(){
+          tryLoadMonaco(`https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/${window.MONACO_VERSION}/min`, createMonacoInstance, function(){
+            enableFallbackEditor();
+          });
+        });
+      });
+    }
+    function createMonacoInstance(){
+      try {
+        editor = monaco.editor.create(elements.monacoEditor, {
+          value: currentCode, language: 'html', theme: 'vs-dark', fontSize: 14, automaticLayout: true, minimap: {enabled:false}
+        });
+        editor.onDidChangeModelContent(()=>{
+          currentCode = editor.getValue();
+          schedulePreview();
+        });
+        if (pendingCodeQueue.length){
+          const latest = pendingCodeQueue[pendingCodeQueue.length-1];
+          editor.setValue(latest);
+          currentCode = latest;
+          pendingCodeQueue = [];
+        }
+      } catch(e){
+        console.error('[Monaco] Erro instanciando', e);
+        enableFallbackEditor();
+      }
+    }
+    function setEditorValue(v){
+      if (usingFallback){
+        elements.fallbackEditor.value = v; currentCode = v;
+      } else if (editor){
+        editor.setValue(v); currentCode = v;
+      } else {
+        pendingCodeQueue.push(v); currentCode = v;
+      }
+      schedulePreview();
+    }
+    function getEditorValue(){ return usingFallback ? elements.fallbackEditor.value : (editor ? editor.getValue() : currentCode); }
+
+    // =========================
+    // IA real — Gemini (não-stream p/ textos curtos)
+    // =========================
+    async function callGemini(prompt, isCodeGeneration=false){
+      if(!apiKey){ openApiDialog(); return 'ERRO::API_KEY_NAO_CONFIGURADA'; }
+      const sys = isCodeGeneration
+        ? 'Gere APENAS código sem markdown. PROIBIDO usar cercas de código (```), blocos ou backticks. Entregue HTML puro.'
+        : 'Você é um assistente técnico. Responda em texto simples. Sem HTML.';
+      const userText = isCodeGeneration
+        ? `Crie um código SOMENTE em HTML completo e funcional para: ${prompt}Regras:
+- Sem markdown (proibido \`\`\`)
+- CSS no <style> e JS em <script>
+- Layout responsivo e dark
+- Evite comentários longos
+- Fonte Inter (Google Fonts)
+- Nenhum texto fora do HTML`
+        : `Contexto: Estou trabalhando em um projeto web (HTML/CSS/JS).\nPergunta: ${prompt}`;
+      try {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`, {
+          method:'POST',
+          headers:{
+            'Content-Type':'application/json',
+            'X-Goog-Api-Key': apiKey
+          },
+          body: JSON.stringify({
+            systemInstruction:{ parts:[{text:sys}] },
+            generationConfig:{
+              temperature: isCodeGeneration?0.4:0.6, topK:40, topP:0.9, candidateCount:1,
+              maxOutputTokens:4096,
+              responseMimeType: 'text/plain'
+            },
+            contents:[{ parts:[{ text:userText }] }]
+          })
+        });
+        const data = await response.json();
+        if(!response.ok) throw new Error(data.error?.message||'Erro desconhecido');
+        return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      } catch(error){
+        console.error('Erro na API:', error);
+        return `ERRO::${error.message}`;
+      }
+    }
+
+    // =========================
+    // STREAMING (SSE) + CONTINUAÇÃO — V2 ROBUSTA
+    // =========================
+    async function safeJson(resp) {
+      try { return await resp.json(); } catch { return null; }
+    }
+
+    // >>> Substitua por esta versão (com Accept + X-Goog-Api-Key e parser SSE robusto)
+     async function safeJson(resp) {
+      try { return await resp.json(); } catch { return null; }
+    }
+
+    async function streamGemini({ prompt, sys, isCodeGeneration=false, onDelta }) {
+      if (!apiKey) { openApiDialog(); throw new Error('API key ausente'); }
+
+      const model = 'gemini-2.0-flash';
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`;
+
+      const body = {
+        systemInstruction: { parts: [{ text: sys || (isCodeGeneration
+          ? 'Gere APENAS código sem markdown. PROIBIDO usar cercas de código (```), blocos ou backticks. Entregue HTML puro.'
+          : 'Você é um assistente técnico. Responda em texto simples.') }] },
+        generationConfig: {
+          temperature: isCodeGeneration ? 0.4 : 0.6,
+          topK: 40,
+          topP: 0.9,
+          candidateCount: 1,
+          maxOutputTokens: 4096,
+          responseMimeType: 'text/plain',
+          stopSequences: ['```'] // desincentiva cercas
+        },
+        contents: [{ parts: [{ text: prompt }]}]
+      };
+
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream',
+          'X-Goog-Api-Key': apiKey
+        },
+        referrerPolicy: 'no-referrer',
+        body: JSON.stringify(body)
+      });
+
+      if (!resp.ok || !resp.body) {
+        const err = await safeJson(resp);
+        throw new Error(err?.error?.message || `HTTP ${resp.status}`);
+      }
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+
+      let full = '';
+      let buffer = '';
+      let pendingDataLines = [];
+
+      const flushDataBlock = () => {
+        if (pendingDataLines.length === 0) return;
+        const jsonStr = pendingDataLines.join('\n');
+        pendingDataLines = [];
+        if (jsonStr === '[DONE]') return;
+        try {
+          const obj = JSON.parse(jsonStr);
+          const delta = obj?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          if (delta) { full += delta; onDelta?.(delta); }
+        } catch { /* ignora metadados não-JSON */ }
+      };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        buffer = buffer.replace(/\r\n/g, '\n');
+
+        let idx;
+        while ((idx = buffer.indexOf('\n\n')) !== -1) {
+          const rawEvent = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 2);
+
+          const lines = rawEvent.split('\n');
+          for (const line of lines) {
+            if (!line) continue;
+            if (line.startsWith(':')) continue; // keep-alive
+            if (line.startsWith('data:')) {
+              pendingDataLines.push(line.replace(/^data:\s?/, ''));
+              continue;
+            }
+            // event:, id:, retry: — ignoramos
+          }
+          flushDataBlock();
+        }
+      }
+
+      if (buffer.trim()) {
+        const tailLines = buffer.split('\n').filter(l => l.startsWith('data:')).map(l => l.replace(/^data:\s?/, ''));
+        if (tailLines.length) {
+          pendingDataLines.push(...tailLines);
+          flushDataBlock();
+        }
+      }
+
+      return full;
+    }
+
+    function htmlProvavelmenteCompleto(s){
+      if (!s) return false;
+      const hasDoc = /<!doctype/i.test(s);
+      const hasHtmlClose = /<\/html>\s*$/i.test(s);
+      return hasDoc && hasHtmlClose;
+    }
+
+    // >>> Merge turbinado (mais tolerância)
+    function mergeWithOverlap(existing, addition){
+      const maxOverlap = Math.min(1200, addition.length);
+      for (let k = maxOverlap; k >= 80; k--) {
+        const end = existing.slice(-k);
+        const start = addition.slice(0, k);
+        if (end === start) return existing + addition.slice(k);
+      }
+      return existing + addition;
+    }
+
+    async function gerarHtmlEmStream(prompt){
+      let started = false;
+      let acc = '';
+       const sys = 'Gere APENAS código. Sem markdown. Devolva um documento HTML completo se possível.';
+      const text = await streamGemini({
+        prompt: `Crie um HTML completo e responsivo (dark). Regras:
+- NÃO use cercas de código (proibido \`\`\`)
+- Use <style> e <script> internos
+- Evite comentários longos
+- Fonte Inter (Google Fonts)
+- Retorne doctype e <html>
+
+Especificação do projeto:
+${prompt}
+`,
+        sys, isCodeGeneration: true,
+        onDelta: (delta)=>{
+          acc += delta;
+          if (!started) { setEditorValue(''); started = true; }
+          queueMicrotask(()=> setEditorValue(acc));
+        }
+      });
+
+      return text;
+    }
+
+    async function continuarHtml(accHtml){
+      const tail = accHtml.slice(-6000);
+      const sys = 'Você é um editor de código. Continue exatamente do ponto onde parou. NÃO repita conteúdo já enviado. PROIBIDO usar cercas (```).';
+      const prompt = `
+Você vai CONTINUAR um HTML que está incompleto.
+NÃO repita nada que já exista. NÃO reinicie <!DOCTYPE> ou <html>.
+Apenas devolva a CONTINUAÇÃO direta, sem markdown.
+
+--- FINAL DO HTML JÁ GERADO (contexto):
+${tail}
+--- REGRAS:
+- Continue a partir do primeiro ponto lógico após esse trecho
+- Se alguma tag ficou aberta, feche corretamente
+- Ao terminar, garanta o fechamento de </body> e </html>`;
+
+      let incremental = '';
+      await streamGemini({
+        prompt, sys, isCodeGeneration: true,
+        onDelta: (delta)=>{
+          incremental += delta;
+          const merged = mergeWithOverlap(getEditorValue() || '', incremental);
+          setEditorValue(merged);
+        }
+      });
+    }
+
+    async function gerarOuCompletar(prompt){
+      const overlay = elements.loadingOverlay;
+      overlay?.classList.remove('hidden');
+
+      try {
+        await gerarHtmlEmStream(prompt);
+        let guard = 0;
+        while (!htmlProvavelmenteCompleto(getEditorValue()) && guard < 3) {
+          await continuarHtml(getEditorValue());
+          guard++;
+        }
+        if (!htmlProvavelmenteCompleto(getEditorValue())) {
+          addChatMessage('assistant', 'Aviso: HTML ainda parece incompleto. Posso dividir em seções (head/style, layout, scripts).');
+        }
+      } catch (e) {
+        addChatMessage('assistant', 'Falha no streaming: ' + (e?.message || 'desconhecido'));
+      } finally {
+        overlay?.classList.add('hidden');
+      }
+    }
+
+    // =========================
+    // Chat
+    // =========================
+    function addChatMessage(role, content){
+      const d=document.createElement('div');
+      d.className=`p-3 rounded-lg ${role==='user'?'bg-zinc-700':'bg-zinc-900'}`;
+      d.innerHTML=`<div class="font-semibold text-sm mb-1">${role==='user'?'Você':'CapyIA'}</div><div class="text-sm">${sanitizeText(content)}</div>`;
+      elements.chatMessages.appendChild(d);
+      elements.chatMessages.scrollTop=elements.chatMessages.scrollHeight;
+    }
+
+    // =========================
+    // Preview
+    // =========================
+    function updatePreview(){
+      if(!currentCode || elements.previewContainer.classList.contains('hidden')) return;
+      const doc = isFullHtml(currentCode) ? currentCode : `<!DOCTYPE html><html><head><base href="/"/></head><body>${currentCode}</body></html>`;
+      elements.previewFrame.srcdoc = doc;
+    }
+
+    // =========================
+    // Testes (sanity)
+    // =========================
+    async function runTests(){
+      const results=[];
+      results.push({name:'Editor disponível', pass: (!!window.monaco && !!editor) || usingFallback});
+      try{
+        const wasHidden = elements.previewContainer.classList.contains('hidden');
+        elements.previewContainer.classList.remove('hidden'); updatePreview();
+        if(wasHidden) elements.previewContainer.classList.add('hidden');
+        results.push({name:'Preview alterna', pass:true});
+      }catch(e){ results.push({name:'Preview alterna', pass:false, info:e.message}); }
+      try{
+        const html = getEditorValue()||'';
+        const ok = /<!doctype|<\s*html[\s>]/i.test(html);
+        results.push({name:'Editor contém HTML gerado', pass: ok});
+      }catch(e){ results.push({name:'Editor contém HTML gerado', pass:false, info:e.message}); }
+      addChatMessage('assistant', 'Testes automáticos:\n'+results.map(r=>`${r.pass?'✅':'❌'} ${r.name}${r.info?' — '+r.info:''}`).join('\n'));
+    }
+
+    // =========================
+    // Eventos
+    // =========================
+    elements.generateBtn.addEventListener('click', async ()=>{
+      const prompt = elements.promptInput.value.trim();
+      if(!prompt){ toast('Descreva o que quer criar :)'); return;}
+
+      elements.loadingOverlay.classList.remove('hidden');
+      try{
+        await gerarOuCompletar(prompt);
+
+        const code = getEditorValue() || '';
+
+        if (!currentThreadId) currentThreadId = await createThread(prompt.slice(0,80));
+        await persistThreadTitle(currentThreadId, prompt.slice(0,80));
+        await addMessage(currentThreadId, 'user', prompt);
+        await addMessage(currentThreadId, 'assistant', 'Código gerado (stream).');
+        await addArtifact(currentThreadId, code);
+        await markThreadOpened(currentThreadId);
+        localStorage.setItem('capy_last_thread_id', currentThreadId);
+        lastGen = { prompt, code };
+
+        elements.homeScreen.classList.add('slide-out-left');
+        setTimeout(()=>{
+          elements.homeScreen.classList.add('hidden');
+          elements.editorScreen.classList.remove('hidden');
+          elements.editorScreen.classList.add('slide-in-right');
+          if (!editor && !usingFallback) initMonacoOrFallback();
+          addChatMessage('user', prompt);
+          addChatMessage('assistant', 'Código gerado e enviado ao editor (stream).');
+          refreshSidebar();
+          setTimeout(runTests, 800);
+        }, 220);
+      }catch(err){
+        addChatMessage('assistant', 'Falhou ao gerar código: '+(err?.message||'desconhecido'));
+      } finally {
+        elements.loadingOverlay.classList.add('hidden');
+      }
+    });
+
+    elements.backBtn.addEventListener('click', ()=>{
+      elements.chatOverlay?.classList.add('hidden');
+      elements.chatPanel?.classList.add('-translate-x-full');
+      elements.homeScreen.classList.remove('slide-in-left','slide-out-left','hidden');
+      elements.editorScreen.classList.remove('slide-in-right','slide-out-left');
+      elements.homeScreen.classList.remove('hidden');
+      elements.editorScreen.classList.add('hidden');
+      elements.codeTab?.click();
+    });
+
+    elements.sendChatBtn.addEventListener('click', async ()=>{
+      const message = elements.chatInput.value.trim();
+      if(!message) return;
+      addChatMessage('user', message);
+      elements.chatInput.value='';
+
+      if (!currentThreadId) currentThreadId = await createThread(message.slice(0,80));
+      await addMessage(currentThreadId, 'user', message);
+      await markThreadOpened(currentThreadId);
+      localStorage.setItem('capy_last_thread_id', currentThreadId);
+
+      // EDIÇÃO CONTÍNUA — stream substituindo o HTML inteiro final
+      if (lastGen.code && isEditIntent(message)) {
+        const baseHtml = getEditorValue();
+        const editInstruction = `
+Você vai EDITAR um HTML completo existente.
+Gere APENAS o HTML COMPLETO atualizado (sem markdown).
+Mantenha estrutura válida (<html>...), preserve o que não foi citado, tema dark e responsivo.
+
+--- HTML ATUAL:
+${baseHtml}
+--- INSTRUÇÕES DO USUÁRIO:
+${message}
+`;
+        let started = false;
+        let acc = '';
+        try {
+          elements.loadingOverlay.classList.remove('hidden');
+
+          await streamGemini({
+            prompt: editInstruction,
+            sys: 'Você é um editor de código. Devolva APENAS o HTML final (completo).',
+            isCodeGeneration: true,
+            onDelta: (delta)=>{
+              acc += delta;
+              if (!started) { setEditorValue(''); started = true; }
+              queueMicrotask(()=> setEditorValue(acc));
+            }
+          });
+
+          const newCode = getEditorValue();
+          lastGen = { prompt: lastGen.prompt + '\n[edição] ' + message, code: newCode };
+          await addMessage(currentThreadId, 'assistant', 'Edição aplicada (stream).');
+          await addArtifact(currentThreadId, newCode);
+          addChatMessage('assistant', 'Edição aplicada ao código no editor.');
+          elements.codeTab.click();
+          refreshSidebar();
+
+        } catch (e) {
+          addChatMessage('assistant', `Falhou ao editar: ${e?.message||'desconhecido'}`);
+        } finally {
+          elements.loadingOverlay.classList.add('hidden');
+        }
+        return;
+      }
+
+      // NOVA GERAÇÃO via chat
+      if (isGenerateIntent(message)) {
+        try{
+          elements.loadingOverlay.classList.remove('hidden');
+          await gerarOuCompletar(message);
+          const code = getEditorValue() || '';
+          lastGen = { prompt: message, code };
+          await addMessage(currentThreadId, 'assistant', 'Código gerado (stream).');
+          await addArtifact(currentThreadId, code);
+          addChatMessage('assistant', 'Código gerado e enviado ao editor.');
+          elements.codeTab.click();
+          refreshSidebar();
+        } catch(e) {
+          addChatMessage('assistant', `Falhou ao gerar código: ${e?.message||'desconhecido'}`);
+        } finally {
+          elements.loadingOverlay.classList.add('hidden');
+        }
+        return;
+      }
+
+      // Resposta textual
+      const ctx = `Contexto: Projeto web HTML/CSS/JS. Pergunta: ${message}
+Responda objetivo, focando em melhorias. Não gere código inteiro salvo pedido.`;
+      const resp = await callGemini(ctx, false);
+      addChatMessage('assistant', resp);
+      await addMessage(currentThreadId, 'assistant', resp);
+    });
+    elements.chatInput.addEventListener('keypress', (e)=>{ if(e.key==='Enter') elements.sendChatBtn.click(); });
+
+    // Tabs desktop
+    elements.codeTab.addEventListener('click', ()=>{
+      elements.codeTab.className='px-3 py-1.5 bg-zinc-700 text-sm';
+      elements.previewTab.className='px-3 py-1.5 bg-zinc-600 text-sm';
+      elements.monacoEditor.classList.remove('hidden');
+      elements.fallbackEditor.style.display = usingFallback ? 'block' : 'none';
+      elements.previewContainer.classList.add('hidden');
+    });
+    elements.previewTab.addEventListener('click', ()=>{
+      elements.previewTab.className='px-3 py-1.5 bg-zinc-700 text-sm';
+      elements.codeTab.className='px-3 py-1.5 bg-zinc-600 text-sm';
+      elements.monacoEditor.classList.add('hidden');
+      elements.fallbackEditor.style.display='none';
+      elements.previewContainer.classList.remove('hidden');
+      updatePreview();
+    });
+
+    // Mobile toolbar
+    document.getElementById('mobileCode').addEventListener('click', ()=>{ elements.codeTab.click(); });
+    document.getElementById('mobilePreview').addEventListener('click', ()=>{ elements.previewTab.click(); });
+    document.getElementById('mobileChat').addEventListener('click', ()=>{ openChatDrawer(); });
+
+    // Drawer controls
+    function openChatDrawer(){ elements.chatPanel.classList.remove('-translate-x-full'); elements.chatOverlay.classList.remove('hidden'); elements.chatInput?.focus(); }
+    function closeChatDrawer(){ elements.chatPanel.classList.add('-translate-x-full'); elements.chatOverlay.classList.add('hidden'); }
+    elements.toggleChatMobile.addEventListener('click', openChatDrawer);
+    elements.closeChatMobile.addEventListener('click', closeChatDrawer);
+    elements.chatOverlay.addEventListener('click', closeChatDrawer);
+
+    // Clipboard & download
+    elements.copyBtn.addEventListener('click', async ()=>{
+      try{ await navigator.clipboard.writeText(getEditorValue()||''); toast('Código copiado!'); }
+      catch{ toast('Não foi possível copiar.'); }
+    });
+    elements.downloadBtn.addEventListener('click', ()=>{
+      const blob=new Blob([getEditorValue()||''],{type:'text/html'});
+      const url=URL.createObjectURL(blob); const a=document.createElement('a');
+      a.href=url; a.download='codigo_gerado.html'; a.click(); URL.revokeObjectURL(url);
+      toast('Download iniciado');
+    });
+
+    // Atalhos
+    window.addEventListener('keydown', (e)=>{
+      const key=e.key.toLowerCase(); const accel=e.ctrlKey||e.metaKey;
+      if(accel && key==='s'){ e.preventDefault();
+        const blob=new Blob([getEditorValue()||''],{type:'text/html'});
+        const url=URL.createObjectURL(blob); const a=document.createElement('a');
+        a.href=url; a.download='projeto.html'; a.click(); URL.revokeObjectURL(url);
+        toast('Arquivo salvo (download)');
+      }
+      if(accel && key==='p'){ e.preventDefault(); elements.previewTab.click(); }
+      if(e.key==='Escape'){ closeChatDrawer(); }
+    });
+
+    // Sugestões rápidas
+    document.querySelectorAll('#homeScreen .bg-zinc-800 button').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const s={
+          'Website':'Uma landing page moderna para uma empresa de tecnologia com seções hero, serviços e contato',
+          'App React':'Um dashboard administrativo com gráficos, tabelas e formulários',
+          'Python':'Uma página web que simula um terminal Python interativo com exemplos de código'
+        };
+        elements.promptInput.value = s[btn.textContent] || btn.textContent;
+        elements.promptInput.focus();
+      });
+    });
+
+    // Boot
+    (async function boot(){
+      setupApiKey();
+      elements.promptInput.placeholder='Ex.: Landing page de startup com hero, grid de features e formulário';
+      setTimeout(()=>elements.promptInput.focus(), 0);
+
+      const ok = await supaHealthy();
+      if (ok) document.getElementById('historyStatus').textContent = 'Conectado';
+      await refreshSidebar();
+
+      // Reabrir última thread (se houver)
+      const last = (await getLastOpenedThread()) || currentThreadId || localStorage.getItem('capy_last_thread_id');
+      if (last) {
+        currentThreadId = last;
+        const code = await fetchThreadCode(currentThreadId);
+        if (code) {
+          elements.homeScreen.classList.add('hidden');
+          elements.editorScreen.classList.remove('hidden');
+          if (!editor && !usingFallback) initMonacoOrFallback();
+          setEditorValue(code);
+          currentCode = code;
+          lastGen = { prompt: '[reaberto]', code };
+        }
+      }
+    })();
+  </script>
+</body>
+</html>

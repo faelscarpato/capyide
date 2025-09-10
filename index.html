@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>CapyIDE - Editor de Código com IA</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Pré-configuração do AMD loader do Monaco ANTES de carregar o loader -->
+  <script>
+    window.MONACO_VERSION = '0.44.0';
+    window.MonacoCDN = `https://cdn.jsdelivr.net/npm/monaco-editor@${window.MONACO_VERSION}/min`;
+    window.require = { paths: { vs: window.MonacoCDN + '/vs' } };
+  </script>
+  <!-- CSS principal do Monaco (evita falha do plugin vs/css) -->
+  <link id="monaco-css" rel="stylesheet" data-name="vs/editor/editor.main" href="https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs/editor/editor.main.css" />
+  <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs/loader.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    .slide-out-left { animation: slideOutLeft 0.4s ease-in-out forwards; }
+    .slide-in-right { animation: slideInRight 0.4s ease-in-out forwards; }
+    .slide-in-left { animation: slideInLeft 0.4s ease-in-out forwards; }
+    @keyframes slideOutLeft { from { transform: translateX(0); opacity: 1; } to { transform: translateX(-100%); opacity: 0; } }
+    @keyframes slideInRight { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    @keyframes slideInLeft { from { transform: translateX(-100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    #previewFrame { width: 100%; height: 100%; border: none; background: white; }
+    #generateBtn { transition: all 0.25s ease; transform: scale(1); }
+    #generateBtn:hover { transform: scale(1.03); box-shadow: 0 8px 25px rgba(163, 230, 53, 0.25); }
+    #generateBtn:active { transform: scale(0.98); }
+    #fallbackEditor { display:none; width:100%; height:100%; background:#0b0b0b; color:#e5e7eb; border:none; padding:12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:14px; }
+  </style>
+</head>
+<body class="bg-zinc-900 text-white h-full overflow-hidden">
+  <!-- HOME (mobile-first) -->
+  <div id="homeScreen" class="min-h-full flex flex-col gap-6 p-4 sm:p-6">
+    <header class="pt-6">
+      <h1 class="text-4xl sm:text-5xl font-bold">
+        <span class="text-gray-300">Capy</span><span class="text-lime-400">IDE</span>
+      </h1>
+      <p class="text-base sm:text-lg text-gray-400 mt-1">O que vamos criar hoje?</p>
+    </header>
+
+    <main class="flex-1">
+      <div class="bg-zinc-800 border border-zinc-700 rounded-xl p-4 sm:p-5">
+        <textarea id="promptInput" placeholder="Descreva o que você quer criar..."
+          class="w-full bg-transparent border border-zinc-700 rounded-lg resize-y min-h-[120px] max-h-[50vh] outline-none text-white placeholder-gray-400 p-3"></textarea>
+        <div class="flex flex-wrap gap-2 mt-4">
+          <button class="px-3 py-1 bg-zinc-700 rounded text-sm hover:bg-zinc-600">Website</button>
+          <button class="px-3 py-1 bg-zinc-700 rounded text-sm hover:bg-zinc-600">App React</button>
+          <button class="px-3 py-1 bg-zinc-700 rounded text-sm hover:bg-zinc-600">Python</button>
+        </div>
+        <div class="mt-4 flex items-center justify-between">
+          <div class="flex items-center gap-2 text-xs text-gray-400">
+            <span>API:</span>
+            <span id="apiStatus" class="inline-block w-2.5 h-2.5 bg-red-500 rounded-full"></span>
+            <!-- BOTÃO NOVO: abre modal de API -->
+            <button id="openApiModal" class="ml-2 px-2 py-1 bg-zinc-700 rounded hover:bg-zinc-600">Configurar API</button>
+          </div>
+          <button id="generateBtn" class="bg-lime-400 text-black px-5 py-2 rounded-lg font-semibold hover:bg-lime-300 active:scale-[0.98]">Gerar Código</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- EDITOR (mobile-first) -->
+  <div id="editorScreen" class="hidden h-full w-full">
+    <div class="flex flex-col h-full">
+      <!-- Header compacto -->
+      <header class="bg-black border-b border-zinc-800 px-3 sm:px-4 py-3 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <button id="backBtn" class="text-lime-400 hover:text-lime-300 text-sm">← Voltar</button>
+          <h2 class="text-lg sm:text-xl font-bold">Capy<span class="text-lime-400">IDE</span></h2>
+        </div>
+        <div class="flex items-center gap-3">
+          <button id="toggleChatMobile" class="sm:hidden inline-flex items-center gap-2 text-sm bg-zinc-800 border border-zinc-700 px-3 py-1.5 rounded">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v2H4V6zm0 5h16v2H4v-2zm0 5h10v2H4v-2z"/></svg>
+            Chat
+          </button>
+          <div class="hidden sm:flex items-center gap-2 text-xs">
+            <span class="text-gray-400">Monaco:</span>
+            <span id="monacoStatus" class="inline-block w-2.5 h-2.5 bg-yellow-500 rounded-full" title="Aguardando"></span>
+          </div>
+          <!-- BOTÃO NOVO: abrir modal também no editor -->
+          <button id="openApiModalEditor" class="hidden sm:inline-flex items-center gap-2 text-sm bg-zinc-800 border border-zinc-700 px-3 py-1.5 rounded">
+            Configurar API
+          </button>
+        </div>
+      </header>
+
+      <!-- Área principal -->
+<div class="relative flex-1 min-h-0 sm:grid sm:grid-cols-[20rem_1fr]">
+        <!-- Chat drawer (mobile) + sidebar (desktop) -->
+<aside id="chatPanel" class="fixed inset-y-0 left-0 w-full max-w-sm bg-zinc-900 border-r border-zinc-800 z-40 transform -translate-x-full transition-transform duration-200 ease-out
+sm:static sm:transform-none sm:translate-x-0 sm:w-80 sm:max-w-none sm:h-full sm:min-h-0 sm:overflow-hidden">
+<div class="h-full min-h-0 flex flex-col">
+            <div class="p-4 border-b border-zinc-700 flex items-center justify-between">
+              <h3 class="font-semibold">Chat com IA</h3>
+              <button id="closeChatMobile" class="sm:hidden text-sm text-gray-300">Fechar</button>
+            </div>
+            <div id="chatMessages" class="flex-1 overflow-y-auto p-4 space-y-3"></div>
+            <div class="p-3 border-t border-zinc-700">
+              <div class="flex gap-2">
+                <input id="chatInput" type="text" placeholder="Pergunte algo..." class="flex-1 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm" />
+                <button id="sendChatBtn" class="bg-lime-400 text-black px-4 py-2 rounded">→</button>
+              </div>
+            </div>
+          </div>
+        </aside>
+        <!-- Overlay do drawer -->
+        <div id="chatOverlay" class="hidden fixed inset-0 bg-black/50 z-30 sm:hidden"></div>
+
+        <!-- Editor + Preview -->
+<section class="h-full min-h-0">
+          <!-- Tabs responsivas -->
+          <div class="bg-zinc-800 border-b border-zinc-700 px-3 sm:px-4 py-2 flex items-center gap-2">
+            <div class="flex items-center bg-zinc-900 rounded-md overflow-hidden">
+              <button id="codeTab" class="px-3 py-1.5 bg-zinc-700 text-sm">Código</button>
+              <button id="previewTab" class="px-3 py-1.5 bg-zinc-600 text-sm">Preview</button>
+            </div>
+            <div class="ml-auto flex items-center gap-2">
+              <button id="copyBtn" class="px-3 py-1 bg-zinc-700 rounded text-sm hover:bg-zinc-600">Copiar</button>
+              <button id="downloadBtn" class="px-3 py-1 bg-zinc-700 rounded text-sm hover:bg-zinc-600">Download</button>
+            </div>
+          </div>
+
+          <!-- Conteúdo -->
+          <div id="editorContent" class="relative h-[calc(100%-48px)] sm:h-[calc(100%-48px)]">
+            <div id="monacoEditor" class="absolute inset-0"></div>
+            <textarea id="fallbackEditor" class="absolute inset-0"></textarea>
+            <div id="previewContainer" class="absolute inset-0 hidden">
+              <iframe id="previewFrame" class="w-full h-full border-0" sandbox="allow-scripts allow-same-origin"></iframe>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Barra inferior mobile -->
+      <nav class="sm:hidden fixed bottom-0 inset-x-0 bg-black/80 backdrop-blur border-t border-zinc-800 flex items-center justify-between px-3 py-2">
+        <button id="mobileCode" class="text-sm px-3 py-1.5 bg-zinc-800 rounded">Código</button>
+        <button id="mobilePreview" class="text-sm px-3 py-1.5 bg-zinc-800 rounded">Preview</button>
+        <button id="mobileChat" class="text-sm px-3 py-1.5 bg-zinc-800 rounded">Chat</button>
+      </nav>
+    </div>
+  </div>
+
+  <!-- Loading Overlay -->
+  <div id="loadingOverlay" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="text-center">
+      <div class="animate-spin w-8 h-8 border-2 border-lime-400 border-t-transparent rounded-full mx-auto mb-4"></div>
+      <p>Gerando código...</p>
+    </div>
+  </div>
+
+  <!-- MODAL NOVO: Configurar API (Google AI Studio) -->
+  <div id="apiModal" class="hidden fixed inset-0 z-[60]">
+    <div id="apiModalBackdrop" class="absolute inset-0 bg-black/60"></div>
+    <div class="absolute inset-x-4 top-16 sm:left-1/2 sm:-translate-x-1/2 sm:w-[460px] bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl overflow-hidden">
+      <div class="px-4 py-3 border-b border-zinc-700 flex items-center justify-between">
+        <h3 class="font-semibold">Configurar API (Google AI Studio)</h3>
+        <button id="apiModalClose" class="text-gray-300 hover:text-white">✕</button>
+      </div>
+      <div class="p-4 space-y-4 text-sm">
+        <p class="text-gray-300">Para gerar código, cole sua <strong>chave gratuita</strong> do Google AI Studio (Gemini):</p>
+        <ol class="list-decimal list-inside text-gray-400 space-y-1">
+          <li>Acesse <span class="underline">ai.google.dev</span> → “Get API Key”.</li>
+          <li>Crie uma chave e copie o token.</li>
+          <li>Cole abaixo e clique em <em>Salvar</em>.</li>
+        </ol>
+        <input id="apiKeyInput" type="password" placeholder="Cole sua API Key aqui" class="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2" />
+        <div class="flex justify-end gap-2">
+          <button id="apiModalCancel" class="px-3 py-2 bg-zinc-800 border border-zinc-700 rounded">Cancelar</button>
+          <button id="apiModalSave" class="px-3 py-2 bg-lime-500 text-black rounded font-semibold">Salvar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // =========================
+    // Estado
+    // =========================
+    let editor; // Monaco
+    let usingFallback = false;
+    let apiKey = localStorage.getItem('gemini_api_key');
+    let currentCode = '';
+    let previewTimer;
+    let pendingCodeQueue = []; // garante que o código vá pro editor assim que ele existir
+
+    // NOVO: memória da última geração/edição
+    let lastGen = { prompt: '', code: '' };
+
+    // =========================
+    // Utils
+    // =========================
+    function sanitizeText(text) { const div = document.createElement('div'); div.textContent = text ?? ''; return div.innerHTML; }
+    function toast(msg) { const el = document.createElement('div'); el.className = 'fixed bottom-16 right-4 bg-zinc-800 text-white text-sm px-4 py-2 rounded shadow-lg border border-zinc-700 z-[70]'; el.textContent = msg; document.body.appendChild(el); setTimeout(() => el.remove(), 2200);} 
+    function schedulePreview(){ if (previewTimer) cancelAnimationFrame(previewTimer); previewTimer = requestAnimationFrame(updatePreview);} 
+    function isFullHtml(doc){ return /<!doctype/i.test(doc) || /<\s*html[\s>]/i.test(doc);} 
+
+    // Detecta intenção de geração a partir do texto do usuário
+    function isGenerateIntent(text){
+      const t = (text||'').toLowerCase();
+      const keywords = ['gera', 'gerar', 'cria', 'criar', 'constroi', 'constrói', 'build', 'generate', 'faça um', 'faça uma', 'html', '<html', '<!doctype', '```html'];
+      return keywords.some(k => t.includes(k));
+    }
+    // NOVO: Detecta intenção de edição contínua
+    function isEditIntent(text){
+      const t = (text||'').toLowerCase();
+      const keys = ['altere','mude','modifique','ajuste','adicione','remova','troque','refatore','melhore','continue','implemente','coloque','tirar','inserir'];
+      return keys.some(k => t.includes(k));
+    }
+
+    // =========================
+    // DOM
+    // =========================
+    const el = (id)=>document.getElementById(id);
+    const elements = {
+      homeScreen: el('homeScreen'), editorScreen: el('editorScreen'),
+      promptInput: el('promptInput'), generateBtn: el('generateBtn'), backBtn: el('backBtn'),
+      chatPanel: el('chatPanel'), chatOverlay: el('chatOverlay'), toggleChatMobile: el('toggleChatMobile'), closeChatMobile: el('closeChatMobile'),
+      chatMessages: el('chatMessages'), chatInput: el('chatInput'), sendChatBtn: el('sendChatBtn'),
+      codeTab: el('codeTab'), previewTab: el('previewTab'),
+      mobileCode: el('mobileCode'), mobilePreview: el('mobilePreview'), mobileChat: el('mobileChat'),
+      monacoEditor: el('monacoEditor'), fallbackEditor: el('fallbackEditor'),
+      previewContainer: el('previewContainer'), previewFrame: el('previewFrame'),
+      copyBtn: el('copyBtn'), downloadBtn: el('downloadBtn'),
+      loadingOverlay: el('loadingOverlay'), apiStatus: el('apiStatus'), monacoStatus: el('monacoStatus'),
+      // NOVO: botões/modal API
+      openApiModal: el('openApiModal'), openApiModalEditor: el('openApiModalEditor'),
+      apiModal: el('apiModal'), apiModalBackdrop: el('apiModalBackdrop'),
+      apiModalClose: el('apiModalClose'), apiModalCancel: el('apiModalCancel'),
+      apiModalSave: el('apiModalSave'), apiKeyInput: el('apiKeyInput')
+    };
+
+    // =========================
+    // API Key (mantendo seu setup existente + modal novo)
+    // =========================
+    function setupApiKey(){
+      if(!apiKey){
+        // Em vez de prompt direto, abrimos o modal automaticamente:
+        openApiDialog();
+      }
+      elements.apiStatus.className = apiKey ? 'inline-block w-2.5 h-2.5 bg-green-500 rounded-full' : 'inline-block w-2.5 h-2.5 bg-red-500 rounded-full';
+    }
+
+    // NOVO: Modal para inserir a API key
+    function openApiDialog(){
+      elements.apiKeyInput.value = apiKey || '';
+      elements.apiModal.classList.remove('hidden');
+      setTimeout(()=>elements.apiKeyInput.focus(), 50);
+    }
+    function closeApiDialog(){
+      elements.apiModal.classList.add('hidden');
+    }
+    elements.openApiModal?.addEventListener('click', openApiDialog);
+    elements.openApiModalEditor?.addEventListener('click', openApiDialog);
+    elements.apiModalBackdrop?.addEventListener('click', closeApiDialog);
+    elements.apiModalClose?.addEventListener('click', closeApiDialog);
+    elements.apiModalCancel?.addEventListener('click', closeApiDialog);
+    elements.apiModalSave?.addEventListener('click', ()=>{
+      const k = elements.apiKeyInput.value.trim();
+      if(!k){ toast('Informe uma chave válida'); return; }
+      localStorage.setItem('gemini_api_key', k);
+      apiKey = k;
+      elements.apiStatus.className = 'inline-block w-2.5 h-2.5 bg-green-500 rounded-full';
+      closeApiDialog();
+      toast('API Key salva');
+    });
+
+    // =========================
+    // Monaco & Fallback
+    // =========================
+    function setMonacoWorkers(baseUrl){
+      window.MonacoEnvironment = {
+        getWorkerUrl: function(moduleId,label){
+          const code = `self.MonacoEnvironment={baseUrl:'${baseUrl}/'};importScripts('${baseUrl}/vs/base/worker/workerMain.js');`;
+          return URL.createObjectURL(new Blob([code], {type:'text/javascript'}));
+        }
+      };
+    }
+    function tryLoadMonaco(cdnBase, onSuccess, onFailure){
+      try {
+        require.config({ paths: { vs: cdnBase + '/vs' } });
+        const css = document.getElementById('monaco-css');
+        if(css) css.href = cdnBase + '/vs/editor/editor.main.css';
+        setMonacoWorkers(cdnBase);
+        require(['vs/editor/editor.main'], function(){
+          if (elements.monacoStatus) elements.monacoStatus.className='inline-block w-2.5 h-2.5 bg-green-500 rounded-full';
+          onSuccess();
+        }, function(err){
+          console.error('[Monaco] Falha', cdnBase, err);
+          onFailure && onFailure(err);
+        });
+      } catch(e){
+        console.error('[Monaco] Exceção', e);
+        onFailure && onFailure(e);
+      }
+    }
+    function enableFallbackEditor(){
+      usingFallback = true;
+      if (elements.monacoStatus) elements.monacoStatus.className='inline-block w-2.5 h-2.5 bg-red-500 rounded-full';
+      elements.fallbackEditor.style.display='block';
+      elements.fallbackEditor.value=currentCode||'';
+      elements.fallbackEditor.addEventListener('input', ()=>{
+        currentCode = elements.fallbackEditor.value;
+        schedulePreview();
+      });
+      if (pendingCodeQueue.length){
+        elements.fallbackEditor.value = pendingCodeQueue[pendingCodeQueue.length-1];
+        currentCode = elements.fallbackEditor.value;
+        pendingCodeQueue = [];
+      }
+      toast('Ativei o editor básico (fallback).');
+    }
+    function initMonacoOrFallback(){
+      tryLoadMonaco(`https://cdn.jsdelivr.net/npm/monaco-editor@${window.MONACO_VERSION}/min`, createMonacoInstance, function(){
+        tryLoadMonaco(`https://unpkg.com/monaco-editor@${window.MONACO_VERSION}/min`, createMonacoInstance, function(){
+          tryLoadMonaco(`https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/${window.MONACO_VERSION}/min`, createMonacoInstance, function(){
+            enableFallbackEditor();
+          });
+        });
+      });
+    }
+    function createMonacoInstance(){
+      try {
+        editor = monaco.editor.create(elements.monacoEditor, {
+          value: currentCode, language: 'html', theme: 'vs-dark', fontSize: 14, automaticLayout: true, minimap: {enabled:false}
+        });
+        editor.onDidChangeModelContent(()=>{
+          currentCode = editor.getValue();
+          schedulePreview();
+        });
+        if (pendingCodeQueue.length){
+          const latest = pendingCodeQueue[pendingCodeQueue.length-1];
+          editor.setValue(latest);
+          currentCode = latest;
+          pendingCodeQueue = [];
+        }
+      } catch(e){
+        console.error('[Monaco] Erro instanciando', e);
+        enableFallbackEditor();
+      }
+    }
+
+    function setEditorValue(v){
+      if (usingFallback){
+        elements.fallbackEditor.value = v; currentCode = v;
+      } else if (editor){
+        editor.setValue(v); currentCode = v;
+      } else {
+        pendingCodeQueue.push(v); currentCode = v;
+      }
+      schedulePreview();
+    }
+    function getEditorValue(){ return usingFallback ? elements.fallbackEditor.value : (editor ? editor.getValue() : currentCode); }
+
+    // =========================
+    // IA real — Gemini
+    // =========================
+    async function callGemini(prompt, isCodeGeneration=false){
+      if(!apiKey){ openApiDialog(); return 'ERRO::API_KEY_NAO_CONFIGURADA'; }
+      const sys = isCodeGeneration
+        ? 'Você gera APENAS código. Não use markdown. Não explique. Entregue um documento único HTML completo quando possível.'
+        : 'Você é um assistente técnico. Responda em texto simples. Sem HTML.';
+      const userText = isCodeGeneration
+        ? `Crie um código SOMENTE em HTML completo e funcional para: ${prompt}\n\nRequisitos:\n- Sem markdown\n- CSS no <style> e JS em <script>\n- Layout responsivo e dark\n- Evite comentários longos\n- Use a fonte Inter (Google Fonts)\n- Nenhum texto fora do HTML`
+        : `Contexto: Estou trabalhando em um projeto web (HTML/CSS/JS).\nPergunta: ${prompt}`;
+      try {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({
+            systemInstruction:{ parts:[{text:sys}] },
+            generationConfig:{
+              temperature: isCodeGeneration?0.4:0.6, topK:40, topP:0.9, candidateCount:1,
+              maxOutputTokens:4096,
+              responseMimeType: 'text/plain' // importante
+            },
+            contents:[{ parts:[{ text:userText }] }]
+          })
+        });
+        const data = await response.json();
+        if(!response.ok) throw new Error(data.error?.message||'Erro desconhecido');
+        return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      } catch(error){
+        console.error('Erro na API:', error);
+        return `ERRO::${error.message}`;
+      }
+    }
+
+    function extractCode(response){
+      if(!response) return '';
+      if (typeof response === 'string' && response.startsWith('ERRO::')) return response;
+      let code = response.replace(/```[a-zA-Z]*\n?|```/g,'');
+      if(isFullHtml(code)) return code.trim();
+      return (`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Projeto CapyIDE</title><style>body{font-family:Inter,system-ui,Arial;margin:0;padding:24px;background:#0b0b0b;color:#e5e7eb}</style></head><body>${code}</body></html>`).trim();
+    }
+
+    // =========================
+    // Chat
+    // =========================
+    function addChatMessage(role, content){
+      const d=document.createElement('div');
+      d.className=`p-3 rounded-lg ${role==='user'?'bg-zinc-700':'bg-zinc-900'}`;
+      d.innerHTML=`<div class="font-semibold text-sm mb-1">${role==='user'?'Você':'CapyIA'}</div><div class="text-sm">${sanitizeText(content)}</div>`;
+      elements.chatMessages.appendChild(d);
+      elements.chatMessages.scrollTop=elements.chatMessages.scrollHeight;
+    }
+
+    // =========================
+    // Preview
+    // =========================
+    function updatePreview(){
+      if(!currentCode || elements.previewContainer.classList.contains('hidden')) return;
+      const doc = isFullHtml(currentCode) ? currentCode : `<!DOCTYPE html><html><head><base href="/"/></head><body>${currentCode}</body></html>`;
+      elements.previewFrame.srcdoc = doc;
+    }
+
+    // =========================
+    // Testes (sanity)
+    // =========================
+    async function runTests(){
+      const results=[];
+      results.push({name:'Editor disponível', pass: (!!window.monaco && !!editor) || usingFallback});
+      try{
+        const wasHidden = elements.previewContainer.classList.contains('hidden');
+        elements.previewContainer.classList.remove('hidden'); updatePreview();
+        if(wasHidden) elements.previewContainer.classList.add('hidden');
+        results.push({name:'Preview alterna', pass:true});
+      }catch(e){ results.push({name:'Preview alterna', pass:false, info:e.message}); }
+      try{
+        const html = getEditorValue()||'';
+        const ok = /<!doctype|<\s*html[\s>]/i.test(html);
+        results.push({name:'Editor contém HTML gerado', pass: ok});
+      }catch(e){ results.push({name:'Editor contém HTML gerado', pass:false, info:e.message}); }
+      addChatMessage('assistant', 'Testes automáticos:\n'+results.map(r=>`${r.pass?'✅':'❌'} ${r.name}${r.info?' — '+r.info:''}`).join('\n'));
+    }
+
+    // =========================
+    // Eventos
+    // =========================
+    elements.generateBtn.addEventListener('click', async ()=>{
+      const prompt = elements.promptInput.value.trim();
+      if(!prompt){ toast('Descreva o que quer criar :)'); return;}
+      elements.loadingOverlay.classList.remove('hidden');
+      try{
+        const response = await callGemini(prompt, true);
+        if (typeof response === 'string' && response.startsWith('ERRO::')) {
+          addChatMessage('assistant', `Falhou ao gerar código: ${response.replace('ERRO::','')}`);
+          elements.loadingOverlay.classList.add('hidden'); return;
+        }
+        const code = extractCode(response);
+        setEditorValue(code);
+        currentCode = code;
+
+        // NOVO: memória da última geração
+        lastGen = { prompt, code };
+
+        elements.homeScreen.classList.add('slide-out-left');
+        setTimeout(()=>{
+          elements.homeScreen.classList.add('hidden');
+          elements.editorScreen.classList.remove('hidden');
+          elements.editorScreen.classList.add('slide-in-right');
+          if (!editor && !usingFallback) initMonacoOrFallback();
+          addChatMessage('user', prompt);
+          addChatMessage('assistant', 'Código gerado e enviado ao editor.');
+          setTimeout(runTests, 800);
+        }, 220);
+      }catch(err){
+        addChatMessage('assistant', 'Falhou ao gerar código: '+(err?.message||'desconhecido'));
+      } finally {
+        elements.loadingOverlay.classList.add('hidden');
+      }
+    });
+
+    // Fix: voltar sem "tela branca" (remove transições que competiam)
+elements.backBtn.addEventListener('click', ()=>{
+  // fecha o drawer do chat no mobile, se estiver aberto
+  elements.chatOverlay?.classList.add('hidden');
+  elements.chatPanel?.classList.add('-translate-x-full');
+
+  // limpa classes de animação que podem ficar presas
+  elements.homeScreen.classList.remove('slide-in-left','slide-out-left','hidden');
+  elements.editorScreen.classList.remove('slide-in-right','slide-out-left');
+
+  // mostra a Home e esconde o Editor sem animar (mais robusto)
+  elements.homeScreen.classList.remove('hidden');
+  elements.editorScreen.classList.add('hidden');
+
+  // opcional: garantir que a aba "Código" esteja selecionada quando voltar depois
+  elements.codeTab?.click();
+});
+
+
+    // Chat: geração/edição
+    elements.sendChatBtn.addEventListener('click', async ()=>{
+      const message = elements.chatInput.value.trim();
+      if(!message) return;
+      addChatMessage('user', message);
+      elements.chatInput.value='';
+
+      // NOVO: EDIÇÃO CONTÍNUA – se já temos lastGen.code e a mensagem soa como alteração
+      if (lastGen.code && isEditIntent(message)) {
+        const editInstruction =
+`Você vai EDITAR um HTML completo existente.
+Gere APENAS o HTML COMPLETO atualizado (sem markdown).
+---
+HTML ATUAL:
+${getEditorValue()}
+---
+INSTRUÇÕES DO USUÁRIO:
+${message}
+---
+Regras: mantenha estrutura válida (<html>...), preserve o que não foi citado, tema dark e responsivo.`;
+        const resp = await callGemini(editInstruction, true);
+        if (typeof resp === 'string' && resp.startsWith('ERRO::')) {
+          addChatMessage('assistant', `Falhou ao editar: ${resp.replace('ERRO::','')}`);
+          return;
+        }
+        const newCode = extractCode(resp);
+        setEditorValue(newCode);
+        currentCode = newCode;
+        lastGen = { prompt: lastGen.prompt + '\n[edição] ' + message, code: newCode };
+        addChatMessage('assistant', 'Edição aplicada ao código no editor.');
+        elements.codeTab.click();
+        return;
+      }
+
+      // GERAÇÃO via chat (nova ideia)
+      if (isGenerateIntent(message)) {
+        const resp = await callGemini(message, true);
+        if (typeof resp === 'string' && resp.startsWith('ERRO::')) {
+          addChatMessage('assistant', `Falhou ao gerar código: ${resp.replace('ERRO::','')}`);
+          return;
+        }
+        const code = extractCode(resp);
+        setEditorValue(code);
+        currentCode = code;
+        lastGen = { prompt: message, code };
+        addChatMessage('assistant', 'Código gerado e enviado ao editor.');
+        elements.codeTab.click();
+        return;
+      }
+
+      // Resposta textual
+      const ctx = `Contexto: Projeto web HTML/CSS/JS. Pergunta: ${message}
+Responda objetivo, focando em melhorias. Não gere código inteiro salvo pedido.`;
+      const resp = await callGemini(ctx, false);
+      addChatMessage('assistant', resp);
+    });
+    elements.chatInput.addEventListener('keypress', (e)=>{ if(e.key==='Enter') elements.sendChatBtn.click(); });
+
+    // Tabs desktop
+    elements.codeTab.addEventListener('click', ()=>{
+      elements.codeTab.className='px-3 py-1.5 bg-zinc-700 text-sm';
+      elements.previewTab.className='px-3 py-1.5 bg-zinc-600 text-sm';
+      elements.monacoEditor.classList.remove('hidden');
+      elements.fallbackEditor.style.display = usingFallback ? 'block' : 'none';
+      elements.previewContainer.classList.add('hidden');
+    });
+    elements.previewTab.addEventListener('click', ()=>{
+      elements.previewTab.className='px-3 py-1.5 bg-zinc-700 text-sm';
+      elements.codeTab.className='px-3 py-1.5 bg-zinc-600 text-sm';
+      elements.monacoEditor.classList.add('hidden');
+      elements.fallbackEditor.style.display='none';
+      elements.previewContainer.classList.remove('hidden');
+      updatePreview();
+    });
+
+    // Mobile toolbar
+    elements.mobileCode.addEventListener('click', ()=>{ elements.codeTab.click(); });
+    elements.mobilePreview.addEventListener('click', ()=>{ elements.previewTab.click(); });
+    elements.mobileChat.addEventListener('click', ()=>{ openChatDrawer(); });
+
+    // Drawer controls
+    function openChatDrawer(){ elements.chatPanel.classList.remove('-translate-x-full'); elements.chatOverlay.classList.remove('hidden'); elements.chatInput?.focus(); }
+    function closeChatDrawer(){ elements.chatPanel.classList.add('-translate-x-full'); elements.chatOverlay.classList.add('hidden'); }
+    elements.toggleChatMobile.addEventListener('click', openChatDrawer);
+    elements.closeChatMobile.addEventListener('click', closeChatDrawer);
+    elements.chatOverlay.addEventListener('click', closeChatDrawer);
+
+    // Clipboard & download
+    elements.copyBtn.addEventListener('click', async ()=>{
+      try{ await navigator.clipboard.writeText(getEditorValue()||''); toast('Código copiado!'); }
+      catch{ toast('Não foi possível copiar.'); }
+    });
+    elements.downloadBtn.addEventListener('click', ()=>{
+      const blob=new Blob([getEditorValue()||''],{type:'text/html'});
+      const url=URL.createObjectURL(blob); const a=document.createElement('a');
+      a.href=url; a.download='codigo_gerado.html'; a.click(); URL.revokeObjectURL(url);
+      toast('Download iniciado');
+    });
+
+    // Atalhos
+    window.addEventListener('keydown', (e)=>{
+      const key=e.key.toLowerCase(); const accel=e.ctrlKey||e.metaKey;
+      if(accel && key==='s'){ e.preventDefault();
+        const blob=new Blob([getEditorValue()||''],{type:'text/html'});
+        const url=URL.createObjectURL(blob); const a=document.createElement('a');
+        a.href=url; a.download='projeto.html'; a.click(); URL.revokeObjectURL(url);
+        toast('Arquivo salvo (download)');
+      }
+      if(accel && key==='p'){ e.preventDefault(); elements.previewTab.click(); }
+      if(e.key==='Escape'){ closeChatDrawer(); }
+    });
+
+    // Sugestões rápidas
+    document.querySelectorAll('#homeScreen .bg-zinc-800 button').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const s={
+          'Website':'Uma landing page moderna para uma empresa de tecnologia com seções hero, serviços e contato',
+          'App React':'Um dashboard administrativo com gráficos, tabelas e formulários',
+          'Python':'Uma página web que simula um terminal Python interativo com exemplos de código'
+        };
+        elements.promptInput.value = s[btn.textContent] || btn.textContent;
+        elements.promptInput.focus();
+      });
+    });
+
+    // Boot
+    setupApiKey(); // se não houver chave, abre modal automaticamente
+    elements.promptInput.placeholder='Ex.: Landing page de startup com hero, grid de features e formulário';
+    setTimeout(()=>elements.promptInput.focus(), 0);
+  </script>
+</body>
+</html>
