@@ -23,6 +23,18 @@ CapyIDE é um editor de código online assistido por IA focado na prototipação
 
 ## Estrutura do código
 
+
+- `controller/` – orquestração da interface. Destaque para `appController.js` (entrada principal), `chatController.js` (detecção de intenção e envio de prompts), `apiKeyController.js` (modal da chave) e `systemTestController.js` (testes rápidos exibidos no chat).
+- `model/` – estado reativo compartilhado (`appState.js`) com persistência segura em `localStorage` quando disponível.
+- `services/` – integração com serviços externos e utilidades de domínio (`aiService.js`, `apiKeyService.js`, `themeService.js`).
+- `view/` – componentes de interface (elementos DOM, editor Monaco, notificações, chat view) desacoplados da lógica.
+- `shared/` – funções puramente utilitárias reutilizadas em múltiplas camadas (ex.: `html.js` com `formatHtml`, `intents.js` com heurísticas de intenção).
+
+Essa separação reduz o acoplamento entre UI e negócio, facilita testes automatizados e deixa mais claro onde cada responsabilidade vive.
+
+## Formatação de código
+
+O botão **Formatar** utiliza a função `formatHtml` (em `js/shared/html.js`) para identar o HTML em uma única passada, preservando blocos críticos como `<pre>`, `<script>` e `<style>`. A nova implementação evita a duplicação que existia anteriormente e melhora o desempenho em documentos longos.
 A refatoração atual dividiu a lógica JavaScript em módulos ES6 localizados na pasta `js/`:
 
 - `app.js` – ponto de entrada que inicializa tema, editor, eventos e integra os demais módulos.
@@ -45,6 +57,14 @@ O botão **Formatar** utiliza a função `formatHtml` (em `utils.js`) para ident
 ## Fluxo geral
 
 1. O usuário descreve uma página e solicita a geração.
+2. `aiService.js` envia o prompt ao Gemini e a resposta é convertida em HTML com `extractCode`.
+3. `editorView.js` insere o código no Monaco (ou fallback), aciona o auto-save e atualiza o preview.
+4. O chat (`chatController.js` + `chatView.js`) mantém o histórico e permite novas interações para edições ou explicações.
+
+## Testes automatizados
+
+Instale as dependências (`npm install`) e execute `npm test` para rodar os testes unitários (Jest). Eles validam as heurísticas de intenção, a formatação de HTML e o pós-processamento das respostas da IA.
+
 2. O módulo `ai.js` envia o prompt ao Gemini e a resposta é convertida em HTML com `extractCode`.
 3. `editor.js` insere o código no Monaco (ou fallback), aciona o auto-save e atualiza o preview.
 4. O chat (`chat.js`) mantém o histórico e permite novas interações para edições ou explicações.
