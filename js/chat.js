@@ -18,8 +18,12 @@ export function addChatMessage(role, content) {
 
 export async function handleChatMessage(message) {
   if (state.lastGen.code && isEditIntent(message)) {
-    const editInstruction =
-      `Você vai EDITAR um HTML completo existente.  Gere APENAS o HTML COMPLETO atualizado (sem markdown).  ---  HTML ATUAL:  ${getEditorValue()}  ---  INSTRUÇÕES DO USUÁRIO:  ${message}  ---  Regras: mantenha estrutura válida (<html>...), preserve o que não foi citado, tema dark e responsivo.`;
+   const editInstruction = `Você vai EDITAR um HTML completo existente.
+Gere APENAS o HTML COMPLETO atualizado, sem nenhum texto explicativo ou instruções.
+--- HTML ATUAL: ${getEditorValue()} ---
+INSTRUÇÕES DO USUÁRIO: ${message} ---
+Regras: mantenha a estrutura válida (<html>...), preserve o que não foi citado, tema dark e responsivo.`;
+
 
     const response = await callGemini(editInstruction, true);
     if (typeof response === 'string' && response.startsWith('ERRO::')) {
