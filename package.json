@@ -1,0 +1,12 @@
+{
+  "name": "capyide",
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "jsdom": "^24.0.0"
+  }
+}
