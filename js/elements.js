@@ -1,0 +1,44 @@
+const el = (id) => document.getElementById(id);
+
+export const elements = {
+  homeScreen: el('homeScreen'),
+  editorScreen: el('editorScreen'),
+  promptInput: el('promptInput'),
+  generateBtn: el('generateBtn'),
+  backBtn: el('backBtn'),
+  chatPanel: el('chatPanel'),
+  chatOverlay: el('chatOverlay'),
+  toggleChatMobile: el('toggleChatMobile'),
+  closeChatMobile: el('closeChatMobile'),
+  chatMessages: el('chatMessages'),
+  chatInput: el('chatInput'),
+  sendChatBtn: el('sendChatBtn'),
+  codeTab: el('codeTab'),
+  previewTab: el('previewTab'),
+  mobileCode: el('mobileCode'),
+  mobilePreview: el('mobilePreview'),
+  mobileChat: el('mobileChat'),
+  monacoEditor: el('monacoEditor'),
+  fallbackEditor: el('fallbackEditor'),
+  previewContainer: el('previewContainer'),
+  previewFrame: el('previewFrame'),
+  copyBtn: el('copyBtn'),
+  downloadBtn: el('downloadBtn'),
+  loadingOverlay: el('loadingOverlay'),
+  apiStatus: el('apiStatus'),
+  monacoStatus: el('monacoStatus'),
+  openApiModal: el('openApiModal'),
+  openApiModalEditor: el('openApiModalEditor'),
+  apiModal: el('apiModal'),
+  apiModalBackdrop: el('apiModalBackdrop'),
+  apiModalClose: el('apiModalClose'),
+  apiModalCancel: el('apiModalCancel'),
+  apiModalSave: el('apiModalSave'),
+  apiKeyInput: el('apiKeyInput'),
+  formatBtn: el('formatBtn'),
+  themeToggle: el('themeToggle'),
+};
+
+export const suggestionButtons = Array.from(
+  document.querySelectorAll('#homeScreen .cu-btn')
+);
