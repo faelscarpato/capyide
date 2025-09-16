@@ -23,7 +23,6 @@ CapyIDE é um editor de código online assistido por IA focado na prototipação
 
 ## Estrutura do código
 
-A refatoração atual organiza a pasta `js/` em camadas inspiradas em MVC:
 
 - `controller/` – orquestração da interface. Destaque para `appController.js` (entrada principal), `chatController.js` (detecção de intenção e envio de prompts), `apiKeyController.js` (modal da chave) e `systemTestController.js` (testes rápidos exibidos no chat).
 - `model/` – estado reativo compartilhado (`appState.js`) com persistência segura em `localStorage` quando disponível.
@@ -36,6 +35,24 @@ Essa separação reduz o acoplamento entre UI e negócio, facilita testes automa
 ## Formatação de código
 
 O botão **Formatar** utiliza a função `formatHtml` (em `js/shared/html.js`) para identar o HTML em uma única passada, preservando blocos críticos como `<pre>`, `<script>` e `<style>`. A nova implementação evita a duplicação que existia anteriormente e melhora o desempenho em documentos longos.
+A refatoração atual dividiu a lógica JavaScript em módulos ES6 localizados na pasta `js/`:
+
+- `app.js` – ponto de entrada que inicializa tema, editor, eventos e integra os demais módulos.
+- `apiKey.js` – gerenciamento do modal de configuração e validação da chave da API.
+- `ai.js` – chamadas à API do Gemini e pós-processamento das respostas.
+- `chat.js` – renderização das mensagens e orquestração das interações com a IA.
+- `editor.js` – inicialização do Monaco Editor, fallback, auto-save e atualização da pré-visualização.
+- `elements.js` – referências centralizadas aos elementos da interface.
+- `state.js` – estado compartilhado e utilitários de persistência em `localStorage`.
+- `theme.js` – aplicação e alternância do tema visual.
+- `tests.js` – verificações rápidas executadas após a geração de código.
+- `utils.js` – funções auxiliares (sanitização de texto, toasts, heurísticas de intenção e formatação HTML).
+
+Essa separação reduz o acoplamento, facilita testes futuros e torna mais simples identificar responsabilidades dentro do projeto.
+
+## Formatação de código
+
+O botão **Formatar** utiliza a função `formatHtml` (em `utils.js`) para identar o HTML em uma única passada, preservando blocos críticos como `<pre>` e `<code>`. A nova implementação evita a duplicação que existia anteriormente e melhora o desempenho em documentos longos.
 
 ## Fluxo geral
 
@@ -47,6 +64,10 @@ O botão **Formatar** utiliza a função `formatHtml` (em `js/shared/html.js`) p
 ## Testes automatizados
 
 Instale as dependências (`npm install`) e execute `npm test` para rodar os testes unitários (Jest). Eles validam as heurísticas de intenção, a formatação de HTML e o pós-processamento das respostas da IA.
+
+2. O módulo `ai.js` envia o prompt ao Gemini e a resposta é convertida em HTML com `extractCode`.
+3. `editor.js` insere o código no Monaco (ou fallback), aciona o auto-save e atualiza o preview.
+4. O chat (`chat.js`) mantém o histórico e permite novas interações para edições ou explicações.
 
 ## Desenvolvimento e contribuições
 
