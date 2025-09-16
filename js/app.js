@@ -103,7 +103,10 @@ function handleDownloadClick() {
 }
 
 function handleShortcuts(event) {
-  const key = event.key.toLowerCase();
+
+  if (!event || !event.key) return;
+  
+ const key = event.key.toLowerCase();
   const accel = event.ctrlKey || event.metaKey;
 
   if (accel && key === 's') {
