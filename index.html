@@ -23,12 +23,21 @@
 
   <!-- ====== THEME CAPYUNIVERSE (drop-in) ====== -->
   <style id="capyuniverse-theme">
-    :root{
+    :root[data-theme="dark"] {
       --cu-bg-0:#0b0b14; --cu-bg-1:#0f1024; --cu-bg-2:#141636;
       --cu-grid:#2a2e63; --cu-card:#0f0f22cc;
       --cu-cyan:#22d3ee; --cu-magenta:#f472d0; --cu-amber:#f59e0b; --cu-violet:#8b5cf6;
       --cu-text:#e6e6f0; --cu-text-dim:#aab;
       --cu-radius:16px; --cu-radius-lg:22px; --cu-shadow:0 10px 30px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.03);
+      --cu-blur:12px;
+    }
+    
+    :root[data-theme="light"] {
+      --cu-bg-0:#ffffff; --cu-bg-1:#f3f4f6; --cu-bg-2:#e5e7eb;
+      --cu-grid:#d1d5db; --cu-card:#ffffffcc;
+      --cu-cyan:#0ea5e9; --cu-magenta:#db2777; --cu-amber:#d97706; --cu-violet:#7c3aed;
+      --cu-text:#111827; --cu-text-dim:#6b7280;
+      --cu-radius:16px; --cu-radius-lg:22px; --cu-shadow:0 10px 30px rgba(0,0,0,.1), inset 0 0 0 1px rgba(0,0,0,.05);
       --cu-blur:12px;
     }
     body{ font-family: 'Inter', sans-serif; background:
@@ -88,10 +97,17 @@
     .cu-output pre{ font-family:"JetBrains Mono", ui-monospace, Menlo, Consolas, monospace; font-size:.9rem; line-height:1.5; padding:1rem; }
 
     /* monaco tweaks */
-    .monaco-editor, .monaco-editor-background{ background-color:#0f1024 !important; }
-    .monaco-editor .margin{ background-color:#0f1024 !important; }
-    .monaco-editor .current-line{ background-color: rgba(255,255,255,.04) !important; }
-    .monaco-editor .scrollbar > .slider{ background:linear-gradient(120deg, #22d3ee, #f472d0) !important; }
+    [data-theme="dark"] .monaco-editor, 
+    [data-theme="dark"] .monaco-editor-background { background-color:#0f1024 !important; }
+    [data-theme="dark"] .monaco-editor .margin { background-color:#0f1024 !important; }
+    [data-theme="dark"] .monaco-editor .current-line { background-color: rgba(255,255,255,.04) !important; }
+    [data-theme="dark"] .monaco-editor .scrollbar > .slider { background:linear-gradient(120deg, #22d3ee, #f472d0) !important; }
+    
+    [data-theme="light"] .monaco-editor,
+    [data-theme="light"] .monaco-editor-background { background-color:#f3f4f6 !important; }
+    [data-theme="light"] .monaco-editor .margin { background-color:#f3f4f6 !important; }
+    [data-theme="light"] .monaco-editor .current-line { background-color: rgba(0,0,0,.03) !important; }
+    [data-theme="light"] .monaco-editor .scrollbar > .slider { background:linear-gradient(120deg, #0ea5e9, #db2777) !important; }
 
     /* animações originais */
     .slide-out-left { animation: slideOutLeft 0.4s ease-in-out forwards; }
@@ -170,6 +186,7 @@
           <span class="cu-chip hidden sm:inline-flex">IA integrada</span>
         </div>
         <div class="flex items-center gap-3">
+          <button id="themeToggle" class="cu-btn" style="padding:.35rem .7rem; font-size:.85rem;">🌙</button>
           <button id="toggleChatMobile" class="sm:hidden cu-btn" style="padding:.35rem .6rem; font-size:.85rem;">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v2H4V6zm0 5h16v2H4v-2zm0 5h10v2H4v-2z"/></svg>
             Chat
@@ -216,6 +233,7 @@
               <button id="previewTab" class="cu-tab">Preview</button>
             </div>
             <div class="ml-auto flex items-center gap-2">
+              <button id="formatBtn" class="cu-btn" style="padding:.45rem .8rem;">Formatar</button>
               <button id="copyBtn" class="cu-btn" style="padding:.45rem .8rem;">Copiar</button>
               <button id="downloadBtn" class="cu-btn" style="padding:.45rem .8rem;">Download</button>
             </div>
@@ -277,8 +295,10 @@
   <script>
     /* ====== Estado (igual ao seu, preservado) ====== */
     let editor; let usingFallback = false; let apiKey = localStorage.getItem('gemini_api_key');
-    let currentCode = ''; let previewTimer; let pendingCodeQueue = [];
+    let currentCode = localStorage.getItem('current_code') || ''; 
+    let previewTimer; let pendingCodeQueue = [];
     let lastGen = { prompt: '', code: '' };
+    let autoSaveTimer;
 
     /* ====== Utils ====== */
     function sanitizeText(text) { const div = document.createElement('div'); div.textContent = text ?? ''; return div.innerHTML; }
@@ -319,14 +339,74 @@
     elements.apiModalBackdrop?.addEventListener('click', closeApiDialog);
     elements.apiModalClose?.addEventListener('click', closeApiDialog);
     elements.apiModalCancel?.addEventListener('click', closeApiDialog);
-    elements.apiModalSave?.addEventListener('click', ()=>{
+    async function validateApiKey(key) {
+      // Valida o formato da chave
+      const keyPattern = /^[A-Za-z0-9-_]+$/;
+      if (!keyPattern.test(key) || key.length < 20) {
+        return { valid: false, error: 'Formato inválido da API key' };
+      }
+
+      // Testa a chave com uma chamada simples
+      try {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: 'Test' }] }],
+            generationConfig: { maxOutputTokens: 1 }
+          })
+        });
+        
+        if (!response.ok) {
+          const data = await response.json();
+          return { valid: false, error: data.error?.message || 'Erro ao validar a chave' };
+        }
+        
+        return { valid: true };
+      } catch (error) {
+        return { valid: false, error: 'Erro ao conectar com a API' };
+      }
+    }
+
+    // Sistema de Temas
+    let currentTheme = localStorage.getItem('theme') || 'dark';
+    
+    function setTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      localStorage.setItem('theme', theme);
+      currentTheme = theme;
+    }
+    
+    function toggleTheme() {
+      const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+      setTheme(newTheme);
+    }
+
+    // Inicializa o tema
+    setTheme(currentTheme);
+
+    elements.apiModalSave?.addEventListener('click', async ()=>{
       const k = elements.apiKeyInput.value.trim();
       if(!k){ toast('Informe uma chave válida'); return; }
+
+      elements.apiModalSave.disabled = true;
+      elements.apiModalSave.textContent = 'Validando...';
+
+      const validation = await validateApiKey(k);
+      
+      elements.apiModalSave.disabled = false;
+      elements.apiModalSave.textContent = 'Salvar';
+      
+      if (!validation.valid) {
+        toast(validation.error);
+        return;
+      }
+
       localStorage.setItem('gemini_api_key', k);
       apiKey = k;
       elements.apiStatus.className = 'inline-block w-2.5 h-2.5 bg-green-500 rounded-full';
       closeApiDialog();
-      toast('API Key salva');
+      toast('API Key salva e validada');
     });
 
     /* ====== Monaco & Fallback ====== */
@@ -400,6 +480,10 @@
       elements.fallbackEditor.addEventListener('input', ()=>{
         currentCode = elements.fallbackEditor.value;
         schedulePreview();
+        
+        // Auto-save após mudanças no editor fallback
+        if (autoSaveTimer) clearTimeout(autoSaveTimer);
+        autoSaveTimer = setTimeout(autoSaveCode, 1000);
       });
       if (pendingCodeQueue.length){
         elements.fallbackEditor.value = pendingCodeQueue[pendingCodeQueue.length-1];
@@ -426,6 +510,10 @@
         editor.onDidChangeModelContent(()=>{
           currentCode = editor.getValue();
           schedulePreview();
+          
+          // Auto-save após mudanças no Monaco
+          if (autoSaveTimer) clearTimeout(autoSaveTimer);
+          autoSaveTimer = setTimeout(autoSaveCode, 1000);
         });
         if (pendingCodeQueue.length){
           const latest = pendingCodeQueue[pendingCodeQueue.length-1];
@@ -438,6 +526,13 @@
         enableFallbackEditor();
       }
     }
+    function autoSaveCode() {
+      const code = getEditorValue();
+      if (code) {
+        localStorage.setItem('current_code', code);
+      }
+    }
+
     function setEditorValue(v){
       if (usingFallback){
         elements.fallbackEditor.value = v; currentCode = v;
@@ -447,6 +542,10 @@
         pendingCodeQueue.push(v); currentCode = v;
       }
       schedulePreview();
+      
+      // Agenda o auto-save após cada mudança
+      if (autoSaveTimer) clearTimeout(autoSaveTimer);
+      autoSaveTimer = setTimeout(autoSaveCode, 1000);
     }
     function getEditorValue(){ return usingFallback ? elements.fallbackEditor.value : (editor ? editor.getValue() : currentCode); }
 
@@ -618,6 +717,15 @@
       updatePreview();
     });
 
+    // Formatação de código
+    elements.formatBtn?.addEventListener('click', formatCode);
+
+    // Alternância de tema
+    elements.themeToggle?.addEventListener('click', () => {
+      toggleTheme();
+      elements.themeToggle.textContent = currentTheme === 'dark' ? '🌙' : '☀️';
+    });
+
     // Mobile toolbar
     elements.mobileCode.addEventListener('click', ()=>{ elements.codeTab.click(); });
     elements.mobilePreview.addEventListener('click', ()=>{ elements.previewTab.click(); });
@@ -629,6 +737,96 @@
     elements.toggleChatMobile.addEventListener('click', openChatDrawer);
     elements.closeChatMobile.addEventListener('click', closeChatDrawer);
     elements.chatOverlay.addEventListener('click', closeChatDrawer);
+
+    // Formatação de código
+    function formatCode() {
+      try {
+        const code = getEditorValue() || '';
+        
+        // Função básica de formatação de HTML
+        const formatted = code
+          // Adiciona quebras de linha após tags de fechamento
+          .replace(/>\s*</g, '>\n<')
+          // Adiciona quebras de linha após blocos de comentários
+          .replace(/-->\s*/g, '-->\n')
+          // Preserva espaços dentro de tags <pre> e <code>
+          .replace(/(<(pre|code)[^>]*>)(.*?)(<\/\2>)/gs, (_, start, tag, content, end) => {
+            return `${start}${content.trim()}${end}`;
+          })
+          // Indenta o código
+          .split('\n')
+          .map((line, _, arr) => {
+            let indent = 0;
+            let spaces = '';
+            
+            // Calcula indentação baseado em tags de abertura/fechamento
+            for (let i = 0; i < arr.length && i < arr.indexOf(line); i++) {
+              const prevLine = arr[i].trim();
+              if (/<[^/][^>]*>/.test(prevLine) && !/<[^/][^>]*\/>/.test(prevLine) && !/<\/[^>]*>/.test(prevLine)) {
+                indent++;
+              }
+              if (/<\/[^>]*>/.test(prevLine)) {
+                indent = Math.max(0, indent - 1);
+              }
+            }
+            
+            // Aplica indentação
+            spaces = '  '.repeat(indent);
+            return spaces + line.trim();
+          })
+          .join('\n');
+        
+        setEditorValue(formatted);
+        toast('Código formatado');
+      } catch (err) {
+        toast('Erro ao formatar código');
+        console.error('Erro formatação:', err);
+      }
+    }
+
+    // Formatação de código
+    function formatCode() {
+      try {
+        const code = getEditorValue() || '';
+        
+        // Função básica de formatação de HTML
+        const formatted = code
+          // Adiciona quebras de linha após tags de fechamento
+          .replace(/>/g, '>\n')
+          // Remove quebras de linha extras
+          .replace(/\n\s*\n/g, '\n')
+          // Preserva espaços dentro de tags pre e code
+          .replace(/(<(pre|code)[^>]*>)(.*?)(<\/\2>)/gs, (_, start, tag, content, end) => {
+            return start + content.trim() + end;
+          })
+          // Indenta o código
+          .split('\n')
+          .map((line, _, arr) => {
+            let indent = 0;
+            
+            // Calcula indentação
+            for (let i = 0; i < arr.length && i < arr.indexOf(line); i++) {
+              const prevLine = arr[i].trim();
+              if (prevLine.match(/<[^/][^>]*>/) && !prevLine.match(/<[^/][^>]*\/>/)) {
+                indent++;
+              }
+              if (prevLine.match(/<\/[^>]*>/)) {
+                indent = Math.max(0, indent - 1);
+              }
+            }
+            
+            // Aplica indentação
+            return '  '.repeat(indent) + line.trim();
+          })
+          .join('\n');
+        
+        setEditorValue(formatted);
+        toast('Código formatado');
+      } catch (err) {
+        toast('Erro ao formatar código');
+        console.error('Erro formatação:', err);
+      }
+    }
 
     // Clipboard & download
     elements.copyBtn.addEventListener('click', async ()=>{
