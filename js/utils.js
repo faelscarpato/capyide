@@ -73,6 +73,10 @@ export function isEditIntent(text) {
     'coloque',
     'tirar',
     'inserir',
+    'edite',
+    'editar',
+    'edicao',
+    'edição',
   ];
   return keywords.some((k) => t.includes(k));
 }
