@@ -11,7 +11,9 @@ export async function callGemini(prompt, isCodeGeneration = false) {
     : 'Você é um assistente técnico. Responda em texto simples. Sem HTML.';
 
   const userText = isCodeGeneration
-    ? `Crie um código SOMENTE em HTML completo e funcional para: ${prompt}\n\nRequisitos:\n- Sem markdown\n- CSS no <style> e JS em <script>\n- Layout responsivo e dark\n- Evite comentários longos\n- Use a fonte Inter (Google Fonts)\n- Nenhum texto fora do HTML`
+    ? `Crie um código SOMENTE em HTML completo e funcional para: ${prompt}\n\nRequisitos:\n- Proibido usar imagens incorporadas (base64); use ícones em CSS/SVG.
+\n- Inclua todas as tags de fechamento (</html>, </body>, etc.)
+\n-  CSS no <style> e JS em <script>\n- Sem markdown\n- CSS no <style> e JS em <script>\n- Layout responsivo e dark\n- Evite comentários longos\n- Use a fonte Inter (Google Fonts)\n- Nenhum texto fora do HTML`
     : `Contexto: Estou trabalhando em um projeto web (HTML/CSS/JS).\nPergunta: ${prompt}`;
 
   try {
